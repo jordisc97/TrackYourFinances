@@ -3,6 +3,7 @@ import secrets
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.database import SessionLocal
 from app.models import Category, CategoryRule, Household, IncomeAllocationPlan
 
 
@@ -71,6 +72,16 @@ def ensure_default_category_rules(db: Session, household_id: int) -> None:
         db.add(CategoryRule(category_id=category.id, pattern=pattern, match_type=match_type, priority=priority))
 
 
+def ensure_default_categories(db: Session, household_id: int) -> None:
+    by_name = {c.name: c for c in db.query(Category).filter(Category.household_id == household_id).all()}
+    for name, kind, color in DEFAULT_CATEGORIES:
+        if name in by_name:
+            continue
+        db.add(Category(household_id=household_id, name=name, kind=kind, color=color, is_system=True))
+    db.flush()
+    ensure_default_category_rules(db, household_id)
+
+
 def seed_household_defaults(db: Session, household: Household) -> None:
     settings = get_settings()
     for name, kind, color in DEFAULT_CATEGORIES:
@@ -79,3 +90,11 @@ def seed_household_defaults(db: Session, household: Household) -> None:
     ensure_default_category_rules(db, household.id)
     db.add(IncomeAllocationPlan(household_id=household.id, spend_pct=settings.default_spend_pct, save_pct=settings.default_save_pct, invest_pct=settings.default_invest_pct))
     db.flush()
+
+
+def ensure_all_household_defaults() -> None:
+    db = SessionLocal()
+    for household in db.query(Household).all():
+        ensure_default_categories(db, household.id)
+    db.commit()
+    db.close()

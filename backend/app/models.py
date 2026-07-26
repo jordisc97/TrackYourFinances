@@ -43,12 +43,15 @@ class Household(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     invite_code: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
+    location: Mapped[str] = mapped_column(String(120), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     users: Mapped[list["User"]] = relationship(back_populates="household")
     accounts: Mapped[list["Account"]] = relationship(back_populates="household")
     categories: Mapped[list["Category"]] = relationship(back_populates="household")
     allocation_plan: Mapped["IncomeAllocationPlan | None"] = relationship(back_populates="household", uselist=False)
     bank_connections: Mapped[list["BankConnection"]] = relationship(back_populates="household")
+    monthly_strategies: Mapped[list["MonthlyStrategy"]] = relationship(back_populates="household")
+    spend_benchmark: Mapped["SpendBenchmark | None"] = relationship(back_populates="household", uselist=False)
 
 
 class User(Base):
@@ -159,3 +162,30 @@ class IncomeAllocationPlan(Base):
     save_pct: Mapped[float] = mapped_column(Float, nullable=False)
     invest_pct: Mapped[float] = mapped_column(Float, nullable=False)
     household: Mapped["Household"] = relationship(back_populates="allocation_plan")
+
+
+class MonthlyStrategy(Base):
+    __tablename__ = "monthly_strategies"
+    __table_args__ = (UniqueConstraint("household_id", "year", "month", name="uq_strategy_household_month"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(ForeignKey("households.id"), nullable=False)
+    year: Mapped[int] = mapped_column(Integer, nullable=False)
+    month: Mapped[int] = mapped_column(Integer, nullable=False)
+    crypto_pct: Mapped[float] = mapped_column(Float, default=10.0)
+    stocks_pct: Mapped[float] = mapped_column(Float, default=10.0)
+    etfs_pct: Mapped[float] = mapped_column(Float, default=10.0)
+    save_pct: Mapped[float] = mapped_column(Float, default=40.0)
+    spend_pct: Mapped[float] = mapped_column(Float, default=30.0)
+    household: Mapped["Household"] = relationship(back_populates="monthly_strategies")
+
+
+class SpendBenchmark(Base):
+    __tablename__ = "spend_benchmarks"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(ForeignKey("households.id"), unique=True, nullable=False)
+    location: Mapped[str] = mapped_column(String(120), default="")
+    monthly_income: Mapped[float] = mapped_column(Float, default=0.0)
+    benchmarks_json: Mapped[str] = mapped_column(String(4000), default="{}")
+    source: Mapped[str] = mapped_column(String(40), default="fallback")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    household: Mapped["Household"] = relationship(back_populates="spend_benchmark")

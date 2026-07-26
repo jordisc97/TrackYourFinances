@@ -20,7 +20,14 @@ class HouseholdOut(BaseModel):
     id: int
     name: str
     invite_code: str
+    location: str = ""
     model_config = {"from_attributes": True}
+
+
+class ProfileUpdateIn(BaseModel):
+    display_name: str | None = None
+    location: str | None = None
+    household_name: str | None = None
 
 
 class RegisterIn(BaseModel):
@@ -116,6 +123,37 @@ class AllocationPlanIn(BaseModel):
     invest_pct: float
 
 
+class MonthlyStrategyOut(BaseModel):
+    year: int
+    month: int
+    crypto_pct: float
+    stocks_pct: float
+    etfs_pct: float
+    save_pct: float
+    spend_pct: float
+    invest_pct: float
+    model_config = {"from_attributes": True}
+
+
+class MonthlyStrategyIn(BaseModel):
+    crypto_pct: float = 10
+    stocks_pct: float = 10
+    etfs_pct: float = 10
+    save_pct: float = 40
+    spend_pct: float = 30
+
+
+class MonthNavRowOut(BaseModel):
+    year: int
+    month: int
+    label: str
+    income: float
+    real_spend: float
+    save_pct: float
+    net_worth: float
+    net_worth_delta_pct: float | None
+
+
 class InstitutionOut(BaseModel):
     id: str
     name: str
@@ -147,6 +185,7 @@ class MonthlySummaryOut(BaseModel):
     save_amount: float
     save_pct: float
     net_worth: float
+    net_worth_delta: float
     net_worth_delta_pct: float | None
     recommended_spend: float
     recommended_save: float
@@ -162,6 +201,8 @@ class CategorySpendOut(BaseModel):
     amount: float
     pct: float
     color: str
+    benchmark_amount: float | None = None
+    benchmark_pct: float | None = None
 
 
 class DashboardOut(BaseModel):
@@ -169,12 +210,22 @@ class DashboardOut(BaseModel):
     month: MonthlySummaryOut
     spend_by_category: list[CategorySpendOut]
     accounts: list[AccountOut]
+    invested_total: float = 0.0
     allocation: AllocationPlanOut
+    strategy: MonthlyStrategyOut
+    month_rows: list[MonthNavRowOut]
     wealth_no_invest_series: list[dict]
     wealth_with_invest_series: list[dict]
+    wealth_projection: list[dict]
+    projection_assumptions: dict
+    benchmark_location: str = ""
+    benchmark_source: str = ""
 
 
 class ImportResult(BaseModel):
     imported: int
     skipped: int
+    replaced: int = 0
+    categorized: int = 0
     account_id: int
+    overwrite: bool = False

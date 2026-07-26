@@ -1,3 +1,6 @@
+from calendar import monthrange
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, joinedload
 
@@ -28,6 +31,11 @@ def _tx_out(tx: Transaction) -> TransactionOut:
 @router.get("/transactions", response_model=list[TransactionOut])
 def list_transactions(
     uncategorized: bool = False,
+    year: int | None = Query(None),
+    month: int | None = Query(None, ge=1, le=12),
+    category_id: int | None = Query(None),
+    uncategorized_only: bool = Query(False),
+    expenses_only: bool = Query(False),
     limit: int = Query(200, le=1000),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -36,8 +44,16 @@ def list_transactions(
     if not account_ids:
         return []
     q = db.query(Transaction).options(joinedload(Transaction.category)).filter(Transaction.account_id.in_(account_ids))
-    if uncategorized:
+    if uncategorized or uncategorized_only:
         q = q.filter(Transaction.category_id.is_(None))
+    elif category_id is not None:
+        q = q.filter(Transaction.category_id == category_id)
+    if year is not None and month is not None:
+        start = date(year, month, 1)
+        end = date(year, month, monthrange(year, month)[1])
+        q = q.filter(Transaction.booked_at >= start, Transaction.booked_at <= end)
+    if expenses_only:
+        q = q.filter(Transaction.amount < 0)
     txs = q.order_by(Transaction.booked_at.desc()).limit(limit).all()
     return [_tx_out(t) for t in txs]
 

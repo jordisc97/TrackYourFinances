@@ -59,9 +59,8 @@ def classify_uncategorized(db: Session, household_id: int, account_ids: list[int
     txs = db.query(Transaction).filter(Transaction.account_id.in_(account_ids), Transaction.category_id.is_(None)).all()
     updated = 0
     for tx in txs:
-        before = tx.category_id
         classify_transaction(db, household_id, tx)
-        if tx.category_id != before:
+        if tx.category_id is not None:
             updated += 1
     db.commit()
     return updated

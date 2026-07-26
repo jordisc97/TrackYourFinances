@@ -1,22 +1,44 @@
 export type User = { id: number; email: string; display_name: string; role: string; household_id: number };
-export type Household = { id: number; name: string; invite_code: string };
+export type Household = { id: number; name: string; invite_code: string; location?: string };
 export type Account = { id: number; name: string; institution: string; currency: string; account_type: string; source: string; is_active: boolean; latest_balance: number | null };
 export type Category = { id: number; name: string; kind: string; color: string };
 export type Transaction = { id: number; account_id: number; category_id: number | null; booked_at: string; amount: number; currency: string; raw_description: string; merchant: string; source: string; category_name: string | null };
 export type Institution = { id: string; name: string; country: string; logo: string | null };
 export type BankConnection = { id: number; provider: string; institution_id: string; institution_name: string; status: string; consent_expires_at: string | null; last_synced_at: string | null };
 export type Allocation = { spend_pct: number; save_pct: number; invest_pct: number };
+export type MonthlyStrategy = {
+  year: number; month: number; crypto_pct: number; stocks_pct: number; etfs_pct: number;
+  save_pct: number; spend_pct: number; invest_pct: number;
+};
+export type MonthNavRow = {
+  year: number; month: number; label: string; income: number; real_spend: number;
+  save_pct: number; net_worth: number; net_worth_delta_pct: number | null;
+};
 export type MonthlySummary = {
   year: number; month: number; income: number; real_spend: number; save_amount: number; save_pct: number;
-  net_worth: number; net_worth_delta_pct: number | null; recommended_spend: number; recommended_save: number;
+  net_worth: number; net_worth_delta: number; net_worth_delta_pct: number | null; recommended_spend: number; recommended_save: number;
   recommended_invest: number; actual_spend_pct: number; actual_save_pct: number; actual_invest_pct: number;
 };
-export type CategorySpend = { category_id: number | null; category_name: string; amount: number; pct: number; color: string };
-export type SeriesPoint = { label: string; value: number };
+export type CategorySpend = {
+  category_id: number | null; category_name: string; amount: number; pct: number; color: string;
+  benchmark_amount?: number | null; benchmark_pct?: number | null;
+};
+export type SeriesPoint = { label: string; value: number; kind?: string };
+export type ProjectionAssumptions = {
+  avg_monthly_income: number; avg_monthly_spend: number;
+  spend_pct: number; save_pct: number; invest_pct: number;
+  sp500_annual_return_pct: number; years: number;
+};
 export type Dashboard = {
   net_worth: number; month: MonthlySummary; spend_by_category: CategorySpend[]; accounts: Account[];
-  allocation: Allocation; wealth_no_invest_series: SeriesPoint[]; wealth_with_invest_series: SeriesPoint[];
+  invested_total: number;
+  allocation: Allocation; strategy: MonthlyStrategy; month_rows: MonthNavRow[];
+  wealth_no_invest_series: SeriesPoint[]; wealth_with_invest_series: SeriesPoint[];
+  wealth_projection: SeriesPoint[]; projection_assumptions: ProjectionAssumptions;
+  benchmark_location?: string; benchmark_source?: string;
 };
+
+export type ImportResult = { imported: number; skipped: number; replaced: number; categorized: number; account_id: number; overwrite: boolean };
 
 const TOKEN_KEY = "tyf_token";
 
@@ -51,6 +73,8 @@ export const api = {
   join: (body: object) => request<{ access_token: string }>("/api/auth/join", { method: "POST", body: JSON.stringify(body) }),
   me: () => request<User>("/api/auth/me"),
   household: () => request<Household>("/api/auth/household"),
+  updateProfile: (body: { display_name?: string; household_name?: string; location?: string }) =>
+    request<Household>("/api/auth/profile", { method: "PUT", body: JSON.stringify(body) }),
   dashboard: (year?: number, month?: number) => {
     const q = new URLSearchParams();
     if (year != null) q.set("year", String(year));
@@ -59,18 +83,38 @@ export const api = {
     return request<Dashboard>(`/api/dashboard${suffix}`);
   },
   updateAllocation: (body: Allocation) => request<Allocation>("/api/dashboard/allocation", { method: "PUT", body: JSON.stringify(body) }),
+  updateStrategy: (year: number, month: number, body: Omit<MonthlyStrategy, "year" | "month" | "invest_pct">) =>
+    request<MonthlyStrategy>(`/api/dashboard/strategy?year=${year}&month=${month}`, { method: "PUT", body: JSON.stringify(body) }),
   accounts: () => request<Account[]>("/api/accounts"),
   createAccount: (body: object) => request<Account>("/api/accounts", { method: "POST", body: JSON.stringify(body) }),
   addBalance: (accountId: number, amount: number, snapshot_date?: string) =>
     request(`/api/accounts/${accountId}/balances`, { method: "POST", body: JSON.stringify({ amount, snapshot_date }) }),
   categories: () => request<Category[]>("/api/categories"),
-  transactions: (uncategorized = false) => request<Transaction[]>(`/api/transactions?uncategorized=${uncategorized}`),
+  transactions: (opts?: { uncategorized?: boolean; year?: number; month?: number; category_id?: number | null; expenses_only?: boolean }) => {
+    const q = new URLSearchParams();
+    if (opts?.uncategorized) q.set("uncategorized", "true");
+    if (opts?.year != null) q.set("year", String(opts.year));
+    if (opts?.month != null) q.set("month", String(opts.month));
+    if (opts?.category_id === null) q.set("uncategorized_only", "true");
+    else if (opts?.category_id != null) q.set("category_id", String(opts.category_id));
+    if (opts?.expenses_only) q.set("expenses_only", "true");
+    const suffix = q.toString() ? `?${q}` : "";
+    return request<Transaction[]>(`/api/transactions${suffix}`);
+  },
   assignCategory: (id: number, body: object) => request<Transaction>(`/api/transactions/${id}/assign`, { method: "POST", body: JSON.stringify(body) }),
-  importCsv: (accountId: number, file: File) => {
+  importCsv: (accountId: number, file: File, overwrite = false) => {
     const form = new FormData();
     form.append("account_id", String(accountId));
+    form.append("overwrite", String(overwrite));
     form.append("file", file);
-    return request<{ imported: number; skipped: number; account_id: number }>("/api/import/csv", { method: "POST", body: form });
+    return request<ImportResult>("/api/import/csv", { method: "POST", body: form });
+  },
+  importInvestmentCsv: (accountId: number, file: File, overwrite = false) => {
+    const form = new FormData();
+    form.append("account_id", String(accountId));
+    form.append("overwrite", String(overwrite));
+    form.append("file", file);
+    return request<ImportResult>("/api/import/investment-csv", { method: "POST", body: form });
   },
   institutions: () => request<Institution[]>("/api/banking/institutions"),
   connections: () => request<BankConnection[]>("/api/banking/connections"),

@@ -37,7 +37,7 @@ API root: http://127.0.0.1:8001/ · docs: http://127.0.0.1:8001/docs
 ```
 ENABLE_BANKING_APP_ID=...
 ENABLE_BANKING_PRIVATE_KEY_PATH=C:\path\to\private.pem
-ENABLE_BANKING_REDIRECT_URL=http://localhost:8000/api/banking/callback
+ENABLE_BANKING_REDIRECT_URL=http://127.0.0.1:8001/api/banking/callback
 ```
 
 Without keys, **Banks → Connect** uses mock consent so you can develop the UI/flow.

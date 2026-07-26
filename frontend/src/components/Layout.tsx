@@ -12,7 +12,7 @@ export function Layout() {
           <NavLink to="/transactions" className={({ isActive }) => (isActive ? "active" : undefined)}>Transactions</NavLink>
           <NavLink to="/accounts" className={({ isActive }) => (isActive ? "active" : undefined)}>Accounts</NavLink>
           <NavLink to="/banks" className={({ isActive }) => (isActive ? "active" : undefined)}>Banks</NavLink>
-          <NavLink to="/household" className={({ isActive }) => (isActive ? "active" : undefined)}>Household</NavLink>
+          <NavLink to="/household" className={({ isActive }) => (isActive ? "active" : undefined)}>Profile</NavLink>
           <span className="muted">{user?.display_name} · {household?.name}</span>
           <button className="secondary" type="button" onClick={logout}>Log out</button>
         </nav>

@@ -4,8 +4,8 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps import get_current_user
 from app.models import IncomeAllocationPlan, User
-from app.schemas import AllocationPlanIn, AllocationPlanOut, DashboardOut
-from app.services.dashboard import build_dashboard
+from app.schemas import AllocationPlanIn, AllocationPlanOut, DashboardOut, MonthlyStrategyIn, MonthlyStrategyOut
+from app.services.dashboard import build_dashboard, get_or_create_strategy, strategy_out
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -29,3 +29,22 @@ def update_allocation(payload: AllocationPlanIn, user: User = Depends(get_curren
     db.commit()
     db.refresh(plan)
     return plan
+
+
+@router.put("/strategy", response_model=MonthlyStrategyOut)
+def update_strategy(
+    payload: MonthlyStrategyIn,
+    year: int,
+    month: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> MonthlyStrategyOut:
+    row = get_or_create_strategy(db, user.household_id, year, month)
+    row.crypto_pct = payload.crypto_pct
+    row.stocks_pct = payload.stocks_pct
+    row.etfs_pct = payload.etfs_pct
+    row.save_pct = payload.save_pct
+    row.spend_pct = payload.spend_pct
+    db.commit()
+    db.refresh(row)
+    return strategy_out(row)

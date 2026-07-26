@@ -2,16 +2,27 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import inspect, text
 
 from app.config import get_settings
 from app.database import Base, engine
 from app.routers import accounts, auth, banking, dashboard, import_csv, transactions
-from app.services.category_migration import ensure_all_household_defaults
+from app.seed import ensure_all_household_defaults
+
+
+def ensure_schema() -> None:
+    Base.metadata.create_all(bind=engine)
+    inspector = inspect(engine)
+    if "households" in inspector.get_table_names():
+        cols = {c["name"] for c in inspector.get_columns("households")}
+        if "location" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE households ADD COLUMN location VARCHAR(120) DEFAULT ''"))
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    Base.metadata.create_all(bind=engine)
+    ensure_schema()
     ensure_all_household_defaults()
     yield
 

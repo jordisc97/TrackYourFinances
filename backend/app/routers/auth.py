@@ -4,9 +4,10 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps import get_current_user
 from app.models import Household, User, UserRole
-from app.schemas import HouseholdOut, JoinHouseholdIn, LoginIn, RegisterIn, TokenOut, UserOut
+from app.schemas import HouseholdOut, JoinHouseholdIn, LoginIn, ProfileUpdateIn, RegisterIn, TokenOut, UserOut
 from app.security import create_access_token, hash_password, verify_password
 from app.seed import new_invite_code, seed_household_defaults
+from app.services.benchmarks import invalidate_benchmarks
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -56,3 +57,23 @@ def me(user: User = Depends(get_current_user)) -> User:
 @router.get("/household", response_model=HouseholdOut)
 def household(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> Household:
     return db.get(Household, user.household_id)
+
+
+@router.put("/profile", response_model=HouseholdOut)
+def update_profile(payload: ProfileUpdateIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> Household:
+    household = db.get(Household, user.household_id)
+    location_changed = False
+    if payload.display_name is not None:
+        user.display_name = payload.display_name.strip() or user.display_name
+    if payload.household_name is not None:
+        household.name = payload.household_name.strip() or household.name
+    if payload.location is not None:
+        new_location = payload.location.strip()
+        location_changed = new_location != (household.location or "")
+        household.location = new_location
+    db.commit()
+    db.refresh(household)
+    db.refresh(user)
+    if location_changed:
+        invalidate_benchmarks(db, household.id)
+    return household

@@ -113,14 +113,16 @@ class EnableBankingProvider:
             "psu_type": "personal",
         }
         response = httpx.post(f"{self.settings.enable_banking_base_url}/auth", json=body, headers=self._headers(), timeout=30.0)
-        response.raise_for_status()
+        if response.status_code >= 400:
+            raise RuntimeError(f"Enable Banking auth failed ({response.status_code}): {response.text}")
         data = response.json()
         return AuthSession(authorization_url=data["url"], session_id=data.get("authorization_id", ""))
 
     def complete_authorization(self, code: str | None, state: str, session_id: str) -> AuthResult:
-        if not self.configured or (code and code.startswith("mock")):
-            accounts = [ProviderAccount(external_id=f"{session_id}-main", name="Main", currency="EUR", iban=None, account_type="checking", balance=0.0)]
-            return AuthResult(session_id=session_id or f"mock-{uuid4().hex}", accounts=accounts, consent_expires_at=datetime.utcnow() + timedelta(days=89))
+        if not self.configured or (code and str(code).startswith("mock")):
+            mock_session = session_id if session_id.startswith("mock-") else f"mock-{uuid4().hex}"
+            accounts = [ProviderAccount(external_id=f"{mock_session}-main", name="Main", currency="EUR", iban=None, account_type="checking", balance=0.0)]
+            return AuthResult(session_id=mock_session, accounts=accounts, consent_expires_at=datetime.utcnow() + timedelta(days=89))
         response = httpx.post(f"{self.settings.enable_banking_base_url}/sessions", json={"code": code}, headers=self._headers(), timeout=30.0)
         response.raise_for_status()
         data = response.json()

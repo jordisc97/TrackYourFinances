@@ -10,6 +10,7 @@ type AuthState = {
   join: (payload: { email: string; password: string; display_name: string; invite_code: string }) => Promise<void>;
   logout: () => void;
   refreshHousehold: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -59,6 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setHousehold(null);
     },
     refreshHousehold: async () => setHousehold(await api.household()),
+    refreshUser: async () => setUser(await api.me()),
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
