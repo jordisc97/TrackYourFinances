@@ -1,0 +1,11 @@
+date,amount,description,merchant,external_id
+2026-07-01,3400.00,Salary July,Employer,inc-2026-07
+2026-07-02,-45.20,Mercadona Gracia,Mercadona,sp-1
+2026-07-03,-12.50,Metro monthly top-up,TMB,sp-2
+2026-07-05,-9.99,Netflix,Netflix,sp-3
+2026-07-08,-120.00,Rent contribution,Housing,sp-4
+2026-07-10,-35.40,Restaurant dinner,Can Culleretes,sp-5
+2026-07-15,-500.00,ETF buy,Trade Republic,sp-6
+2026-07-20,-22.10,Uber trip,Uber,sp-7
+2026-07-22,-18.00,Pharmacy,Farmacia,sp-8
+2026-07-25,-60.00,Savings transfer,Savings,sp-9

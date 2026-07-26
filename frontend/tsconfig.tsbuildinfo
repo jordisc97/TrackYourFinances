@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/api.ts","./src/auth.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/components/layout.tsx","./src/pages/accountspage.tsx","./src/pages/authpage.tsx","./src/pages/bankspage.tsx","./src/pages/dashboardpage.tsx","./src/pages/householdpage.tsx","./src/pages/transactionspage.tsx"],"version":"5.8.3"}
