@@ -6,7 +6,7 @@ Private household finance tracker for European banks (Revolut + Banco Sabadell f
 
 - Backend: FastAPI + SQLite + SQLAlchemy
 - Frontend: Vite + React + TypeScript + Recharts
-- Open Banking: Enable Banking (`BankProvider` abstraction; mock mode without API keys)
+- Open Banking: Enable Banking (mock mode without API keys)
 
 ## Quick start
 

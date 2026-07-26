@@ -3,7 +3,7 @@ from datetime import date, datetime
 from sqlalchemy.orm import Session
 
 from app.models import Account, AccountSource, BalanceSnapshot, BankConnection, ConnectionStatus, Transaction, TransactionSource
-from app.providers.base import BankProvider
+from app.providers.enable_banking import EnableBankingProvider
 from app.services.classification import classify_transaction
 
 
@@ -16,7 +16,7 @@ def upsert_balance(db: Session, account: Account, amount: float, snapshot_date: 
     db.add(BalanceSnapshot(account_id=account.id, snapshot_date=snapshot_date, amount=amount))
 
 
-def sync_connection(db: Session, connection: BankConnection, provider: BankProvider) -> int:
+def sync_connection(db: Session, connection: BankConnection, provider: EnableBankingProvider) -> int:
     if not connection.session_id:
         connection.status = ConnectionStatus.error.value
         db.commit()

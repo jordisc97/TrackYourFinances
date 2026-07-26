@@ -5,8 +5,8 @@ from collections import defaultdict
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
-from app.models import Account, AccountType, BalanceSnapshot, IncomeAllocationPlan, Transaction, BankConnection
-from app.schemas import AccountOut, AllocationPlanOut, BankConnectionOut, CategorySpendOut, DashboardOut, MonthlySummaryOut
+from app.models import Account, AccountType, BalanceSnapshot, IncomeAllocationPlan, Transaction
+from app.schemas import AccountOut, AllocationPlanOut, CategorySpendOut, DashboardOut, MonthlySummaryOut
 
 
 def account_balance_on(db: Session, account_id: int, as_of: date) -> float:
@@ -108,20 +108,6 @@ def spend_by_category(db: Session, household_id: int, year: int, month: int) -> 
     ]
 
 
-def net_worth_series(db: Session, household_id: int, months: int = 12) -> list[dict]:
-    today = date.today()
-    points = []
-    for offset in range(months - 1, -1, -1):
-        y = today.year
-        m = today.month - offset
-        while m <= 0:
-            m += 12
-            y -= 1
-        _, end = month_bounds(y, m)
-        points.append({"label": f"{y}-{m:02d}", "value": round(net_worth_on(db, household_id, end), 2)})
-    return points
-
-
 def wealth_series(db: Session, household_id: int, include_investments: bool, months: int = 12) -> list[dict]:
     today = date.today()
     accounts = db.query(Account).filter(Account.household_id == household_id, Account.is_active.is_(True)).all()
@@ -164,15 +150,12 @@ def build_dashboard(db: Session, household_id: int, year: int | None = None, mon
         for a in accounts
     ]
     plan = db.query(IncomeAllocationPlan).filter(IncomeAllocationPlan.household_id == household_id).one()
-    connections = db.query(BankConnection).filter(BankConnection.household_id == household_id).all()
     return DashboardOut(
         net_worth=round(sum(balances.values()), 2),
         month=build_monthly_summary(db, household_id, year, month),
         spend_by_category=spend_by_category(db, household_id, year, month),
         accounts=account_outs,
         allocation=AllocationPlanOut.model_validate(plan),
-        net_worth_series=net_worth_series(db, household_id),
         wealth_no_invest_series=wealth_series(db, household_id, include_investments=False),
         wealth_with_invest_series=wealth_series(db, household_id, include_investments=True),
-        connections=[BankConnectionOut.model_validate(c) for c in connections],
     )

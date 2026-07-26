@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { CartesianGrid, Legend, Line, LineChart, Pie, PieChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, type Dashboard } from "../api";
-
-const euro = new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" });
+import { euro } from "../format";
 
 export function DashboardPage() {
   const [year, setYear] = useState<number | null>(null);
@@ -22,15 +21,6 @@ export function DashboardPage() {
     setSavePct(dash.allocation.save_pct);
     setInvestPct(dash.allocation.invest_pct);
   }
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const bankStatus = params.get("bank_status");
-    const bankMessage = params.get("bank_message");
-    if (bankStatus === "failed" && bankMessage) setMessage(bankMessage);
-    if (bankStatus === "connected" && bankMessage) setMessage(bankMessage);
-    if (bankStatus) window.history.replaceState({}, "", "/");
-  }, []);
 
   useEffect(() => {
     load(year, month).catch((err: Error) => setMessage(err.message));
@@ -63,7 +53,7 @@ export function DashboardPage() {
             <input type="number" min={1} max={12} value={month ?? ""} onChange={(e) => setMonth(Number(e.target.value))} />
           </label>
         </div>
-      {message && <p className={message.toLowerCase().includes("failed") || message.toLowerCase().includes("cancelled") ? "amount-neg" : "muted"} style={{ marginTop: "0.75rem" }}>{message}</p>}
+        {message && <p className="muted" style={{ marginTop: "0.75rem" }}>{message}</p>}
       </section>
 
       <div className="grid stats" style={{ marginBottom: "1rem" }}>
@@ -165,7 +155,6 @@ export function DashboardPage() {
             ))}
           </tbody>
         </table>
-        {message && <p className="muted">{message}</p>}
       </div>
     </div>
   );

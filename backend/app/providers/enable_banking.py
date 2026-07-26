@@ -1,4 +1,5 @@
 import time
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -7,14 +8,48 @@ import httpx
 import jwt
 
 from app.config import get_settings
-from app.providers.base import (
-    AuthResult,
-    AuthSession,
-    BankProvider,
-    ProviderAccount,
-    ProviderInstitution,
-    ProviderTransaction,
-)
+
+
+@dataclass
+class ProviderInstitution:
+    id: str
+    name: str
+    country: str
+    logo: str | None = None
+
+
+@dataclass
+class ProviderAccount:
+    external_id: str
+    name: str
+    currency: str
+    iban: str | None
+    account_type: str
+    balance: float
+
+
+@dataclass
+class ProviderTransaction:
+    external_id: str
+    booked_at: date
+    amount: float
+    currency: str
+    description: str
+    merchant: str
+
+
+@dataclass
+class AuthSession:
+    authorization_url: str
+    session_id: str
+
+
+@dataclass
+class AuthResult:
+    session_id: str
+    accounts: list[ProviderAccount]
+    consent_expires_at: datetime | None
+
 
 V1_INSTITUTIONS = [
     ProviderInstitution(id="REVOLUT_ES", name="Revolut", country="ES"),
@@ -23,7 +58,7 @@ V1_INSTITUTIONS = [
 PREFERRED_NAMES = ("revolut", "sabadell")
 
 
-class EnableBankingProvider(BankProvider):
+class EnableBankingProvider:
     name = "enable_banking"
 
     def __init__(self) -> None:
@@ -189,5 +224,5 @@ class EnableBankingProvider(BankProvider):
         return result
 
 
-def get_bank_provider() -> BankProvider:
+def get_bank_provider() -> EnableBankingProvider:
     return EnableBankingProvider()

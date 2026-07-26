@@ -1,7 +1,6 @@
 from datetime import datetime
 from urllib.parse import quote
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
@@ -9,10 +8,10 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.database import get_db
 from app.deps import get_current_user
-from app.models import Account, AccountSource, BankConnection, ConnectionStatus, User
-from app.providers.enable_banking import EnableBankingProvider, get_bank_provider
+from app.models import BankConnection, ConnectionStatus, User
+from app.providers.enable_banking import get_bank_provider
 from app.schemas import AuthStartOut, BankConnectionOut, InstitutionOut
-from app.services.sync import sync_connection, upsert_balance
+from app.services.sync import sync_connection
 
 router = APIRouter(prefix="/api/banking", tags=["banking"])
 
@@ -20,6 +19,10 @@ router = APIRouter(prefix="/api/banking", tags=["banking"])
 def _frontend_url(path_query: str) -> str:
     frontend = get_settings().cors_origins.split(",")[0].strip().rstrip("/")
     return f"{frontend}{path_query}"
+
+
+def _banks_redirect(status_value: str, message: str) -> RedirectResponse:
+    return RedirectResponse(url=_frontend_url(f"/banks?bank_status={status_value}&bank_message={quote(message)}"))
 
 
 @router.get("/institutions", response_model=list[InstitutionOut])
@@ -65,7 +68,6 @@ def callback(
     error_description: str | None = None,
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
-    settings = get_settings()
     if error:
         if state and state.isdigit():
             connection = db.get(BankConnection, int(state))
@@ -74,55 +76,24 @@ def callback(
                 db.commit()
         detail = error_description or error
         message = "Bank login was cancelled. You can retry from Banks, or import a CSV instead." if error == "access_denied" else f"Bank login failed: {detail}"
-        return RedirectResponse(url=_frontend_url(f"/onboarding?bank_status=failed&bank_message={quote(message)}"))
-    if not state:
-        return RedirectResponse(url=_frontend_url(f"/onboarding?bank_status=failed&bank_message={quote('Missing bank connection state.')}"))
+        return _banks_redirect("failed", message)
+    if not state or not state.isdigit():
+        return _banks_redirect("failed", "Missing bank connection state.")
     connection = db.get(BankConnection, int(state))
     if connection is None:
-        return RedirectResponse(url=_frontend_url(f"/onboarding?bank_status=failed&bank_message={quote('Bank connection not found.')}"))
-    provider = get_bank_provider()
-    accounts = []
-    if code and not str(code).startswith("mock") and isinstance(provider, EnableBankingProvider) and provider.configured:
-        session_response = httpx.post(f"{settings.enable_banking_base_url}/sessions", json={"code": code}, headers=provider._headers(), timeout=30.0)
-        if session_response.status_code < 400:
-            data = session_response.json()
-            connection.session_id = data.get("session_id") or data.get("id")
-            expires = (data.get("access") or {}).get("valid_until")
-            if expires:
-                connection.consent_expires_at = datetime.fromisoformat(expires.replace("Z", "+00:00")).replace(tzinfo=None)
-            accounts = [provider._map_account(item) for item in data.get("accounts", []) if isinstance(item, dict)]
-            if not accounts and connection.session_id:
-                accounts = provider.fetch_accounts(connection.session_id)
-        elif connection.session_id:
-            accounts = provider.fetch_accounts(connection.session_id)
-        else:
-            connection.status = ConnectionStatus.error.value
-            db.commit()
-            return RedirectResponse(url=_frontend_url(f"/onboarding?bank_status=failed&bank_message={quote('Could not finish bank authorization. Try Connect again or import a CSV.')}"))
-    elif not code:
+        return _banks_redirect("failed", "Bank connection not found.")
+    if not code:
         connection.status = ConnectionStatus.error.value
         db.commit()
-        return RedirectResponse(url=_frontend_url(f"/onboarding?bank_status=failed&bank_message={quote('Bank login did not return an authorization code. Try again.')}"))
-    else:
-        result = provider.complete_authorization(code, state, connection.session_id or "")
-        connection.session_id = result.session_id
-        connection.consent_expires_at = result.consent_expires_at
-        accounts = result.accounts
+        return _banks_redirect("failed", "Bank login did not return an authorization code. Try again.")
+    provider = get_bank_provider()
+    result = provider.complete_authorization(code, state, connection.session_id or "")
+    connection.session_id = result.session_id
+    connection.consent_expires_at = result.consent_expires_at
     connection.status = ConnectionStatus.active.value
-    connection.last_synced_at = datetime.utcnow()
-    for pa in accounts:
-        existing = db.query(Account).filter(Account.household_id == connection.household_id, Account.external_id == pa.external_id).first()
-        if existing is None:
-            account = Account(household_id=connection.household_id, bank_connection_id=connection.id, name=f"{connection.institution_name} {pa.name}", institution=connection.institution_name, currency=pa.currency, account_type=pa.account_type, source=AccountSource.bank.value, external_id=pa.external_id, iban=pa.iban)
-            db.add(account)
-            db.flush()
-            upsert_balance(db, account, pa.balance)
-        else:
-            existing.bank_connection_id = connection.id
-            upsert_balance(db, existing, pa.balance)
     db.commit()
     sync_connection(db, connection, provider)
-    return RedirectResponse(url=_frontend_url(f"/?bank_status=connected&bank_message={quote(f'Connected {connection.institution_name}.')}"))
+    return _banks_redirect("connected", f"Connected {connection.institution_name}.")
 
 
 @router.post("/connections/{connection_id}/sync")

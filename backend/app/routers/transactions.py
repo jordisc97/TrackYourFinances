@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.database import get_db
 from app.deps import get_current_user
 from app.models import Account, Category, CategoryRule, Transaction, User
-from app.schemas import CategoryOut, CategoryRuleIn, CategoryRuleOut, TransactionAssignIn, TransactionCreate, TransactionOut
+from app.schemas import CategoryOut, TransactionAssignIn, TransactionOut
 from app.services.classification import classify_uncategorized
 
 router = APIRouter(prefix="/api", tags=["transactions"])
@@ -42,19 +42,6 @@ def list_transactions(
     return [_tx_out(t) for t in txs]
 
 
-@router.post("/transactions", response_model=TransactionOut)
-def create_transaction(payload: TransactionCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> TransactionOut:
-    account = db.query(Account).filter(Account.id == payload.account_id, Account.household_id == user.household_id).first()
-    if account is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
-    tx = Transaction(account_id=payload.account_id, booked_at=payload.booked_at, amount=payload.amount, currency=payload.currency, raw_description=payload.raw_description, merchant=payload.merchant, category_id=payload.category_id, source="manual")
-    db.add(tx)
-    db.commit()
-    db.refresh(tx)
-    tx = db.query(Transaction).options(joinedload(Transaction.category)).filter(Transaction.id == tx.id).one()
-    return _tx_out(tx)
-
-
 @router.post("/transactions/{transaction_id}/assign", response_model=TransactionOut)
 def assign_category(transaction_id: int, payload: TransactionAssignIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> TransactionOut:
     tx = db.query(Transaction).options(joinedload(Transaction.category), joinedload(Transaction.account)).filter(Transaction.id == transaction_id).first()
@@ -78,20 +65,3 @@ def assign_category(transaction_id: int, payload: TransactionAssignIn, user: Use
 @router.get("/categories", response_model=list[CategoryOut])
 def list_categories(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[Category]:
     return db.query(Category).filter(Category.household_id == user.household_id).order_by(Category.name).all()
-
-
-@router.get("/category-rules", response_model=list[CategoryRuleOut])
-def list_rules(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[CategoryRule]:
-    return db.query(CategoryRule).join(Category).filter(Category.household_id == user.household_id).order_by(CategoryRule.priority).all()
-
-
-@router.post("/categories/{category_id}/rules", response_model=CategoryRuleOut)
-def add_rule(category_id: int, payload: CategoryRuleIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> CategoryRule:
-    category = db.query(Category).filter(Category.id == category_id, Category.household_id == user.household_id).first()
-    if category is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
-    rule = CategoryRule(category_id=category.id, pattern=payload.pattern, match_type=payload.match_type, priority=payload.priority)
-    db.add(rule)
-    db.commit()
-    db.refresh(rule)
-    return rule

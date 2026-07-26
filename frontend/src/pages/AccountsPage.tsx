@@ -1,7 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api, type Account } from "../api";
-
-const euro = new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" });
+import { euro } from "../format";
 
 export function AccountsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);

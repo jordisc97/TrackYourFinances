@@ -3,7 +3,7 @@ import { useAuth } from "../auth";
 
 type Mode = "login" | "register" | "join";
 
-export function AuthPage({ onRegistered }: { onRegistered?: () => void }) {
+export function AuthPage() {
   const { login, register, join } = useAuth();
   const [mode, setMode] = useState<Mode>("login");
   const [error, setError] = useState("");
@@ -17,7 +17,6 @@ export function AuthPage({ onRegistered }: { onRegistered?: () => void }) {
     event.preventDefault();
     setError("");
     if (mode === "register") {
-      onRegistered?.();
       await register({ email, password, display_name: displayName, household_name: householdName }).catch((err: Error) => setError(err.message));
       return;
     }

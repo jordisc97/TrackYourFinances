@@ -15,8 +15,7 @@ export type CategorySpend = { category_id: number | null; category_name: string;
 export type SeriesPoint = { label: string; value: number };
 export type Dashboard = {
   net_worth: number; month: MonthlySummary; spend_by_category: CategorySpend[]; accounts: Account[];
-  allocation: Allocation; net_worth_series: SeriesPoint[]; wealth_no_invest_series: SeriesPoint[];
-  wealth_with_invest_series: SeriesPoint[]; connections: BankConnection[];
+  allocation: Allocation; wealth_no_invest_series: SeriesPoint[]; wealth_with_invest_series: SeriesPoint[];
 };
 
 const TOKEN_KEY = "tyf_token";

@@ -83,22 +83,6 @@ class CategoryOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class CategoryRuleIn(BaseModel):
-    pattern: str
-    match_type: str = "contains"
-    priority: int = 100
-
-
-class CategoryRuleOut(BaseModel):
-    id: int
-    category_id: int
-    pattern: str
-    match_type: str
-    priority: int
-    is_active: bool
-    model_config = {"from_attributes": True}
-
-
 class TransactionOut(BaseModel):
     id: int
     account_id: int
@@ -117,16 +101,6 @@ class TransactionAssignIn(BaseModel):
     category_id: int
     create_rule: bool = True
     rule_pattern: str | None = None
-
-
-class TransactionCreate(BaseModel):
-    account_id: int
-    booked_at: date
-    amount: float
-    raw_description: str = ""
-    merchant: str = ""
-    category_id: int | None = None
-    currency: str = "EUR"
 
 
 class AllocationPlanOut(BaseModel):
@@ -196,10 +170,8 @@ class DashboardOut(BaseModel):
     spend_by_category: list[CategorySpendOut]
     accounts: list[AccountOut]
     allocation: AllocationPlanOut
-    net_worth_series: list[dict]
     wealth_no_invest_series: list[dict]
     wealth_with_invest_series: list[dict]
-    connections: list[BankConnectionOut]
 
 
 class ImportResult(BaseModel):
