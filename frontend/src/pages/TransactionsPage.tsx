@@ -12,6 +12,36 @@ const IMPORT_MODE_REPLACE = "replace";
 const DEFAULT_CSV_ACCOUNT_NAME = "CSV checking";
 const DEFAULT_CSV_INSTITUTION = "CSV import";
 const EMPLOYER_PLACEHOLDER = "PayPal, HP, …";
+const DEFAULT_PORTION_A_LABEL = "Me";
+const DEFAULT_PORTION_B_LABEL = "Partner";
+const LEDGER_MONTH_ALL = "all";
+const LEDGER_MONTH_LOOKBACK = 36;
+const LEDGER_MONTH_LOCALE = "en-US";
+const LEDGER_MONTH_ALL_LABEL = "All months";
+
+type SplitDraft = { label: string; amount: string; category_id: number | "" };
+type LedgerMonthOption = { value: string; label: string };
+
+function currentLedgerMonthKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function buildLedgerMonthOptions(): LedgerMonthOption[] {
+  const options: LedgerMonthOption[] = [{ value: LEDGER_MONTH_ALL, label: LEDGER_MONTH_ALL_LABEL }];
+  const cursor = new Date();
+  cursor.setDate(1);
+  for (let i = 0; i < LEDGER_MONTH_LOOKBACK; i++) {
+    options.push({
+      value: `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`,
+      label: cursor.toLocaleDateString(LEDGER_MONTH_LOCALE, { month: "short", year: "numeric" }),
+    });
+    cursor.setMonth(cursor.getMonth() - 1);
+  }
+  return options;
+}
+
+const LEDGER_MONTH_OPTIONS = buildLedgerMonthOptions();
 
 function formatElapsed(totalSeconds: number): string {
   const minutes = Math.floor(totalSeconds / 60);
@@ -19,11 +49,25 @@ function formatElapsed(totalSeconds: number): string {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
+function defaultDrafts(tx: Transaction): SplitDraft[] {
+  const half = Math.round((Math.abs(tx.amount) / 2) * 100) / 100;
+  const rest = Math.round((Math.abs(tx.amount) - half) * 100) / 100;
+  const categoryId = tx.category_id ?? "";
+  if (tx.splits && tx.splits.length >= 2) {
+    return tx.splits.map((s) => ({ label: s.label, amount: String(Math.abs(s.amount)), category_id: s.category_id ?? categoryId }));
+  }
+  return [
+    { label: DEFAULT_PORTION_A_LABEL, amount: String(half), category_id: categoryId },
+    { label: DEFAULT_PORTION_B_LABEL, amount: String(rest), category_id: categoryId },
+  ];
+}
+
 export function TransactionsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [onlyUncategorized, setOnlyUncategorized] = useState(false);
+  const [ledgerMonth, setLedgerMonth] = useState(currentLedgerMonthKey);
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"ok" | "error" | "">("");
   const [accountId, setAccountId] = useState<number | typeof ACCOUNT_UNSET>(ACCOUNT_UNSET);
@@ -36,13 +80,26 @@ export function TransactionsPage() {
   const [newAccountName, setNewAccountName] = useState(DEFAULT_CSV_ACCOUNT_NAME);
   const [creatingAccount, setCreatingAccount] = useState(false);
   const [employerNames, setEmployerNames] = useState("");
+  const [splittingId, setSplittingId] = useState<number | null>(null);
+  const [splitDrafts, setSplitDrafts] = useState<SplitDraft[]>([]);
+  const [splitBusy, setSplitBusy] = useState(false);
 
   const selectedAccount = accounts.find((account) => account.id === accountId);
   const overwrite = importMode === IMPORT_MODE_REPLACE;
   const canImport = Boolean(file && accountId !== ACCOUNT_UNSET && !busy);
+  const splittingTx = transactions.find((tx) => tx.id === splittingId) ?? null;
+  const draftTotal = splitDrafts.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+  const splitTarget = splittingTx ? Math.abs(splittingTx.amount) : 0;
+  const splitBalanced = Math.abs(draftTotal - splitTarget) < 0.02;
 
   async function load() {
-    const [txs, cats, accs] = await Promise.all([api.transactions({ uncategorized: onlyUncategorized }), api.categories(), api.accounts()]);
+    const txQuery: { uncategorized?: boolean; year?: number; month?: number } = { uncategorized: onlyUncategorized };
+    if (ledgerMonth !== LEDGER_MONTH_ALL) {
+      const [year, month] = ledgerMonth.split("-").map(Number);
+      txQuery.year = year;
+      txQuery.month = month;
+    }
+    const [txs, cats, accs] = await Promise.all([api.transactions(txQuery), api.categories(), api.accounts()]);
     setTransactions(txs);
     setCategories(cats);
     setAccounts(accs);
@@ -72,7 +129,7 @@ export function TransactionsPage() {
 
   useEffect(() => {
     load().catch((err: Error) => { setMessageTone("error"); setMessage(err.message); });
-  }, [onlyUncategorized]);
+  }, [onlyUncategorized, ledgerMonth]);
 
   useEffect(() => {
     if (!busy) {
@@ -87,6 +144,45 @@ export function TransactionsPage() {
   async function assign(txId: number, categoryId: number) {
     await api.assignCategory(txId, { category_id: categoryId, create_rule: true });
     await load();
+  }
+
+  function openSplit(tx: Transaction) {
+    setSplittingId(tx.id);
+    setSplitDrafts(defaultDrafts(tx));
+  }
+
+  function updateDraft(index: number, patch: Partial<SplitDraft>) {
+    setSplitDrafts((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  }
+
+  async function saveSplit() {
+    if (!splittingTx || !splitBalanced) return;
+    setSplitBusy(true);
+    const portions = splitDrafts.map((row) => ({
+      amount: Number(row.amount) || 0,
+      label: row.label.trim() || "Share",
+      category_id: row.category_id === "" ? splittingTx.category_id : Number(row.category_id),
+    }));
+    await api.splitTransaction(splittingTx.id, portions);
+    setSplittingId(null);
+    setSplitDrafts([]);
+    setMessageTone("ok");
+    setMessage(`Split saved for ${splittingTx.merchant || splittingTx.raw_description || "transaction"}.`);
+    await load();
+    setSplitBusy(false);
+  }
+
+  async function clearSplit(txId: number) {
+    setSplitBusy(true);
+    await api.unsplitTransaction(txId);
+    if (splittingId === txId) {
+      setSplittingId(null);
+      setSplitDrafts([]);
+    }
+    setMessageTone("ok");
+    setMessage("Split removed.");
+    await load();
+    setSplitBusy(false);
   }
 
   async function cancelImport() {
@@ -140,7 +236,7 @@ export function TransactionsPage() {
     <div>
       <section className="hero">
         <h1>Transactions</h1>
-        <p>Classify spending, import bank CSVs, and grow rules from one-click assigns.</p>
+        <p>Classify spending, split shared bills, import bank CSVs, and grow rules from one-click assigns.</p>
       </section>
 
       <div className={`panel csv-import${busy ? " is-busy" : ""}`} style={{ marginBottom: "1rem" }}>
@@ -189,13 +285,7 @@ export function TransactionsPage() {
               <span className="csv-label">CSV/Excel file</span>
               <span className="csv-hint">Export from your bank, then choose the file here.</span>
               <span className={`csv-file${file ? " has-file" : ""}`}>
-                <input
-                  type="file"
-                  accept=".csv,.xls,.xlsx"
-                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                  required
-                  disabled={busy}
-                />
+                <input type="file" accept=".csv,.xls,.xlsx" onChange={(e) => setFile(e.target.files?.[0] ?? null)} required disabled={busy} />
                 <span className="csv-file-name">{file ? file.name : "No file chosen"}</span>
                 <span className="csv-file-action">{file ? "Change file" : "Choose file"}</span>
               </span>
@@ -242,9 +332,46 @@ export function TransactionsPage() {
         {message && <p className={`csv-status csv-status-${messageTone || "ok"}`}>{message}</p>}
       </div>
 
+      {splittingTx && (
+        <div className="panel split-editor" style={{ marginBottom: "1rem" }}>
+          <div className="row" style={{ marginBottom: "0.75rem" }}>
+            <div style={{ flex: 2 }}>
+              <h2 style={{ marginBottom: "0.25rem" }}>Split bill</h2>
+              <p className="muted">{splittingTx.merchant || splittingTx.raw_description || "Transaction"} · {euro.format(splittingTx.amount)}</p>
+            </div>
+            <button type="button" className="secondary" disabled={splitBusy} onClick={() => { setSplittingId(null); setSplitDrafts([]); }}>Cancel</button>
+          </div>
+          <div className="split">
+            {splitDrafts.map((row, index) => (
+              <div className="split-row" key={index}>
+                <input value={row.label} onChange={(e) => updateDraft(index, { label: e.target.value })} placeholder="Label" disabled={splitBusy} />
+                <input type="number" min={0} step="0.01" value={row.amount} onChange={(e) => updateDraft(index, { amount: e.target.value })} placeholder="Amount" disabled={splitBusy} />
+                <select value={row.category_id} onChange={(e) => updateDraft(index, { category_id: e.target.value ? Number(e.target.value) : "" })} disabled={splitBusy}>
+                  <option value="">Same category</option>
+                  {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
+          <div className="row" style={{ marginTop: "0.85rem", alignItems: "center" }}>
+            <p className={`muted${splitBalanced ? "" : " csv-status-error"}`} style={{ flex: 2, margin: 0 }}>
+              Portions {euro.format(draftTotal)} / {euro.format(splitTarget)}{splitBalanced ? "" : " — must match total"}
+            </p>
+            <button type="button" className="secondary" disabled={splitBusy} onClick={() => setSplitDrafts((rows) => [...rows, { label: "Share", amount: "0", category_id: splittingTx.category_id ?? "" }])}>Add portion</button>
+            <button type="button" disabled={splitBusy || !splitBalanced || splitDrafts.length < 2} onClick={() => saveSplit().catch((err: Error) => { setSplitBusy(false); setMessageTone("error"); setMessage(err.message); })}>{splitBusy ? "Saving…" : "Save split"}</button>
+          </div>
+        </div>
+      )}
+
       <div className={`panel ledger-panel${busy ? " is-busy" : ""}`}>
         <div className="row" style={{ marginBottom: "0.75rem" }}>
           <h2 style={{ flex: 2 }}>Ledger</h2>
+          <label className="ledger-month-filter">
+            <span className="muted">Month</span>
+            <select value={ledgerMonth} onChange={(e) => setLedgerMonth(e.target.value)} disabled={busy}>
+              {LEDGER_MONTH_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </label>
           <label style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
             <input type="checkbox" checked={onlyUncategorized} onChange={(e) => setOnlyUncategorized(e.target.checked)} disabled={busy} />
             Uncategorized inbox
@@ -253,21 +380,10 @@ export function TransactionsPage() {
         </div>
         <div className={`ledger-body${busy ? " is-obscured" : ""}`}>
           <table className="table">
-            <thead><tr><th>Date</th><th>Description</th><th>Amount</th><th>Category</th><th>Assign</th></tr></thead>
+            <thead><tr><th>Date</th><th>Description</th><th>Amount</th><th>Category</th><th>Assign</th><th>Split</th></tr></thead>
             <tbody>
               {transactions.map((tx) => (
-                <tr key={tx.id}>
-                  <td>{tx.booked_at}</td>
-                  <td>{tx.merchant || tx.raw_description || "—"}</td>
-                  <td className={tx.amount >= 0 ? "amount-pos" : "amount-neg"}>{euro.format(tx.amount)}</td>
-                  <td>{tx.category_name || <span className="pill warn">Uncategorized</span>}</td>
-                  <td>
-                    <select defaultValue="" disabled={busy} onChange={(e) => { const value = Number(e.target.value); if (value) assign(tx.id, value).catch((err: Error) => { setMessageTone("error"); setMessage(err.message); }); }}>
-                      <option value="" disabled>Choose…</option>
-                      {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
-                  </td>
-                </tr>
+                <FragmentRow key={tx.id} tx={tx} categories={categories} busy={busy || splitBusy} onAssign={assign} onOpenSplit={openSplit} onClearSplit={clearSplit} onError={(err) => { setMessageTone("error"); setMessage(err); }} />
               ))}
             </tbody>
           </table>
@@ -286,5 +402,54 @@ export function TransactionsPage() {
         )}
       </div>
     </div>
+  );
+}
+
+function FragmentRow({
+  tx, categories, busy, onAssign, onOpenSplit, onClearSplit, onError,
+}: {
+  tx: Transaction;
+  categories: Category[];
+  busy: boolean;
+  onAssign: (txId: number, categoryId: number) => Promise<void>;
+  onOpenSplit: (tx: Transaction) => void;
+  onClearSplit: (txId: number) => Promise<void>;
+  onError: (message: string) => void;
+}) {
+  return (
+    <>
+      <tr>
+        <td>{tx.booked_at}</td>
+        <td>
+          {tx.merchant || tx.raw_description || "—"}
+          {tx.splits && tx.splits.length > 0 && <span className="pill" style={{ marginLeft: "0.4rem" }}>Split</span>}
+        </td>
+        <td className={tx.amount >= 0 ? "amount-pos" : "amount-neg"}>{euro.format(tx.amount)}</td>
+        <td>{tx.category_name || <span className="pill warn">Uncategorized</span>}</td>
+        <td>
+          <select defaultValue="" disabled={busy} onChange={(e) => { const value = Number(e.target.value); if (value) onAssign(tx.id, value).catch((err: Error) => onError(err.message)); }}>
+            <option value="" disabled>Choose…</option>
+            {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </td>
+        <td>
+          <div className="row" style={{ gap: "0.35rem", minWidth: "7rem" }}>
+            <button type="button" className="secondary" disabled={busy || tx.amount === 0} onClick={() => onOpenSplit(tx)}>Split</button>
+            {tx.splits && tx.splits.length > 0 && (
+              <button type="button" className="secondary" disabled={busy} onClick={() => onClearSplit(tx.id).catch((err: Error) => onError(err.message))}>Clear</button>
+            )}
+          </div>
+        </td>
+      </tr>
+      {tx.splits?.map((split) => (
+        <tr key={`${tx.id}-${split.id}`} className="split-portion-row">
+          <td />
+          <td className="muted">↳ {split.label}</td>
+          <td className={split.amount >= 0 ? "amount-pos" : "amount-neg"}>{euro.format(split.amount)}</td>
+          <td className="muted">{split.category_name || tx.category_name || "—"}</td>
+          <td colSpan={2} />
+        </tr>
+      ))}
+    </>
   );
 }

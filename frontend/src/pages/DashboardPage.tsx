@@ -35,6 +35,10 @@ function CombinedWealthChart({ title, historical, forecast, forecastNoInvest, co
   ];
   const muted = themeColor("--muted");
   const track = themeColor("--track");
+  const panel = themeColor("--panel-solid");
+  const ink = themeColor("--ink");
+  const line = themeColor("--line");
+  const tipStyle = { background: panel, border: `1px solid ${line}`, borderRadius: 12, color: ink, boxShadow: "var(--shadow)" };
   return (
     <div className="panel">
       <h2>{title}</h2>
@@ -45,7 +49,7 @@ function CombinedWealthChart({ title, historical, forecast, forecastNoInvest, co
             <CartesianGrid strokeDasharray="3 3" stroke={track} />
             <XAxis dataKey="at" type="number" scale="time" domain={["dataMin", "dataMax"]} tickFormatter={formatAxisDate} minTickGap={28} tick={{ fontSize: 11, fill: muted }} />
             <YAxis width={64} tickFormatter={axisMoney} tick={{ fontSize: 11, fill: muted }} />
-            <Tooltip labelFormatter={(ms) => formatAxisDate(Number(ms))} formatter={(value) => euro.format(Number(value))} />
+            <Tooltip contentStyle={tipStyle} itemStyle={{ color: ink }} labelStyle={{ color: muted }} labelFormatter={(ms) => formatAxisDate(Number(ms))} formatter={(value) => euro.format(Number(value))} />
             <Line type="monotone" dataKey="historical" stroke={color} strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} name="Wealth" />
             <Line type="monotone" dataKey="forecast" stroke={forecastColor} strokeWidth={2} strokeDasharray="6 3" dot={false} activeDot={{ r: 3 }} name="Forecast (invested)" />
             <Line type="monotone" dataKey="noInvest" stroke={muted} strokeWidth={1.5} strokeDasharray="4 4" dot={false} activeDot={{ r: 3 }} name="Forecast (0% invest)" />
@@ -320,13 +324,25 @@ export function DashboardPage() {
           <table className="table">
             <thead><tr><th>Date</th><th>Description</th><th>Amount</th></tr></thead>
             <tbody>
-              {categoryExpenses.map((tx) => (
-                <tr key={tx.id}>
-                  <td>{tx.booked_at}</td>
-                  <td>{tx.merchant || tx.raw_description || "—"}</td>
-                  <td className="amount-neg">{euro.format(Math.abs(tx.amount))}</td>
-                </tr>
-              ))}
+              {categoryExpenses.flatMap((tx) => {
+                const portions = (tx.splits || []).filter((s) => s.category_id === selectedCategory.category_id || (s.category_id == null && tx.category_id === selectedCategory.category_id));
+                if (portions.length > 0) {
+                  return portions.map((split) => (
+                    <tr key={`${tx.id}-${split.id}`}>
+                      <td>{tx.booked_at}</td>
+                      <td>{tx.merchant || tx.raw_description || "—"}{split.label ? ` · ${split.label}` : ""}</td>
+                      <td className="amount-neg">{euro.format(Math.abs(split.amount))}</td>
+                    </tr>
+                  ));
+                }
+                return [(
+                  <tr key={tx.id}>
+                    <td>{tx.booked_at}</td>
+                    <td>{tx.merchant || tx.raw_description || "—"}</td>
+                    <td className="amount-neg">{euro.format(Math.abs(tx.amount))}</td>
+                  </tr>
+                )];
+              })}
             </tbody>
           </table>
         )}

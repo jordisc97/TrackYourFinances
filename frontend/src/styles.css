@@ -58,10 +58,16 @@ button.danger { background: var(--spend); color: var(--bg); }
 input, select {
   width: 100%;
   border: 1px solid var(--line);
-  background: var(--input);
+  background: var(--panel-solid);
   color: var(--ink);
   border-radius: 12px;
   padding: 0.7rem 0.85rem;
+  color-scheme: dark;
+}
+input::placeholder { color: var(--muted); }
+select option, select optgroup {
+  background-color: var(--panel-solid);
+  color: var(--ink);
 }
 
 .app-shell { min-height: 100vh; display: grid; grid-template-rows: auto 1fr; }
@@ -208,6 +214,15 @@ input, select {
 
 .chart-note { margin: 0 0 0.6rem; font-size: 0.88rem; }
 .chart-frame { width: 100%; height: 220px; }
+.recharts-default-tooltip {
+  background: var(--panel-solid) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 12px !important;
+  color: var(--ink) !important;
+  box-shadow: var(--shadow) !important;
+}
+.recharts-tooltip-label { color: var(--muted) !important; }
+.recharts-tooltip-item { color: var(--ink) !important; }
 .cat-panel { overflow: hidden; }
 .cat-hint { margin: 0 0 0.75rem; }
 .cat-bars { display: grid; gap: 0.55rem; }
@@ -396,7 +411,9 @@ input, select {
 }
 .bar > span { display: block; height: 100%; }
 .split { display: grid; gap: 0.65rem; margin-top: 0.75rem; }
-.split-row { display: grid; grid-template-columns: 90px 1fr auto; gap: 0.6rem; align-items: center; }
+.split-row { display: grid; grid-template-columns: minmax(90px, 1fr) 110px minmax(120px, 1.2fr); gap: 0.6rem; align-items: center; }
+.split-editor h2 { margin: 0; }
+.split-portion-row td { padding-top: 0.2rem; padding-bottom: 0.35rem; border-bottom-color: transparent; font-size: 0.92rem; }
 
 @keyframes rise {
   from { opacity: 0; transform: translateY(12px); }
@@ -588,6 +605,13 @@ input, select {
   pointer-events: none;
 }
 
+.ledger-month-filter {
+  flex: 0 1 11rem;
+  min-width: 9rem;
+  display: grid;
+  gap: 0.25rem;
+}
+.ledger-month-filter select { width: 100%; }
 .ledger-panel {
   position: relative;
   overflow: hidden;

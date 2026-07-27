@@ -5,7 +5,7 @@ from difflib import get_close_matches
 from sqlalchemy.orm import Session, joinedload
 
 from app.config import get_settings
-from app.models import Category, CategoryRule, Household, Transaction, User
+from app.models import Category, CategoryRule, Household, Transaction, TransactionSplit, User
 from app.schemas import AdvisorActionResult, AdvisorChatIn, AdvisorChatOut
 from app.services.dashboard import (
     build_month_rows,
@@ -16,12 +16,18 @@ from app.services.dashboard import (
     spend_by_category,
 )
 from app.services.deepseek import advisor_chat
+from app.services.classification import remember_commerce
+from app.services.splits import replace_splits, signed_portion_amount, validate_portions
 
-RECENT_TX_LIMIT = 80
+RECENT_TX_LIMIT = 120
+SEARCH_TX_LIMIT = 40
 UNCATEGORIZED_SAMPLE = 12
 HISTORY_LIMIT = 12
 RECATEGORIZE_CAP = 50
+SPLIT_CAP = 10
 JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
+TOKEN_RE = re.compile(r"[A-Za-zÀ-ÿ0-9]{4,}")
+STOP_WORDS = {"that", "this", "with", "from", "into", "have", "been", "were", "was", "split", "bill", "paid", "rest", "ticket", "plane", "wife", "husband", "share", "spent", "spend", "please", "should", "count", "spending", "transaction", "transactions"}
 
 
 def _resolve_category(name: str, categories: list[Category]) -> Category | None:
@@ -44,6 +50,14 @@ def _resolve_category(name: str, categories: list[Category]) -> Category | None:
 
 
 def _tx_line(tx: Transaction) -> dict:
+    splits = [
+        {
+            "amount": round(s.amount, 2),
+            "label": s.label,
+            "category": s.category.name if s.category else (tx.category.name if tx.category else None),
+        }
+        for s in (tx.splits or [])
+    ]
     return {
         "id": tx.id,
         "date": tx.booked_at.isoformat(),
@@ -52,10 +66,36 @@ def _tx_line(tx: Transaction) -> dict:
         "merchant": (tx.merchant or "")[:80],
         "description": (tx.raw_description or "")[:100],
         "category": tx.category.name if tx.category else None,
+        "splits": splits,
     }
 
 
-def build_advisor_context(db: Session, household_id: int, year: int, month: int) -> dict:
+def _search_tokens(message: str) -> list[str]:
+    return [t.lower() for t in TOKEN_RE.findall(message or "") if t.lower() not in STOP_WORDS][:8]
+
+
+def _matching_transactions(db: Session, account_ids: list[int], tokens: list[str]) -> list[Transaction]:
+    if not account_ids or not tokens:
+        return []
+    txs = (
+        db.query(Transaction)
+        .options(joinedload(Transaction.category), joinedload(Transaction.splits).joinedload(TransactionSplit.category))
+        .filter(Transaction.account_id.in_(account_ids))
+        .order_by(Transaction.booked_at.desc())
+        .limit(800)
+        .all()
+    )
+    hits = []
+    for tx in txs:
+        hay = f"{tx.merchant} {tx.raw_description}".lower()
+        if any(token in hay for token in tokens):
+            hits.append(tx)
+        if len(hits) >= SEARCH_TX_LIMIT:
+            break
+    return hits
+
+
+def build_advisor_context(db: Session, household_id: int, year: int, month: int, message: str = "") -> dict:
     household = db.get(Household, household_id)
     account_ids = household_account_ids(db, household_id)
     categories = db.query(Category).filter(Category.household_id == household_id).order_by(Category.name).all()
@@ -66,7 +106,7 @@ def build_advisor_context(db: Session, household_id: int, year: int, month: int)
     category_spend = spend_by_category(month_txs)
     recent_q = (
         db.query(Transaction)
-        .options(joinedload(Transaction.category))
+        .options(joinedload(Transaction.category), joinedload(Transaction.splits).joinedload(TransactionSplit.category))
         .filter(Transaction.account_id.in_(account_ids))
         .order_by(Transaction.booked_at.desc())
         .limit(RECENT_TX_LIMIT)
@@ -78,6 +118,7 @@ def build_advisor_context(db: Session, household_id: int, year: int, month: int)
         if account_ids
         else 0
     )
+    matched = _matching_transactions(db, account_ids, _search_tokens(message))
     return {
         "household": household.name if household else "",
         "location": (household.location or "") if household else "",
@@ -111,8 +152,10 @@ def build_advisor_context(db: Session, household_id: int, year: int, month: int)
         ],
         "categories": [{"id": c.id, "name": c.name, "kind": c.kind} for c in categories],
         "recent_transactions": [_tx_line(t) for t in recent],
+        "matched_transactions": [_tx_line(t) for t in matched],
         "uncategorized_count": uncategorized_count,
         "uncategorized_sample": [_tx_line(t) for t in uncategorized[:UNCATEGORIZED_SAMPLE]],
+        "capabilities": ["recategorize", "split"],
     }
 
 
@@ -120,11 +163,15 @@ def _system_prompt(context: dict) -> str:
     return (
         "You are a concise household financial advisor inside TrackYourFinances. "
         "Use only the provided JSON context; never invent balances or transactions. "
-        "Give practical advice on spending, saving, investing, and categorization. "
+        "Give practical advice on spending, saving, investing, categorization, and bill splits. "
         "When the user asks to move transactions to a category, map their wording to the closest existing category name from context.categories. "
         "Never create new categories. "
-        'Reply with JSON only: {"reply":"<plain text for the user>","actions":[{"type":"recategorize","transaction_ids":[1],"category_name":"<exact or close name>","create_rule":true}]}. '
-        "Use actions only when the user clearly wants recategorization; otherwise actions must be []. "
+        "You CAN split one transaction into labeled portions. Bank amount stays unchanged; portion amounts must sum to the transaction amount (same sign). "
+        "Use expense categories for portions that should count as spending (including money paid for a partner). "
+        "Use Transfer only when a portion should be excluded from spend. "
+        "Prefer matched_transactions when the user names a merchant from another month. "
+        'Reply with JSON only: {"reply":"<plain text for the user>","actions":[{"type":"recategorize","transaction_ids":[1],"category_name":"<name>","create_rule":true},{"type":"split","transaction_id":1,"portions":[{"amount":-521,"label":"Me","category_name":"Travel"},{"amount":-479,"label":"Wife","category_name":"Travel"}]}]}. '
+        "Use actions only when the user clearly wants recategorization or a split; otherwise actions must be []. "
         f"Context: {json.dumps(context, separators=(',', ':'))}"
     )
 
@@ -177,6 +224,7 @@ def _apply_recategorize(
     for tx in txs:
         tx.category_id = category.id
         updated_ids.append(tx.id)
+        remember_commerce(db, tx.merchant, tx.raw_description, category.name)
         if create_rule:
             pattern = (tx.merchant or tx.raw_description or "").strip()[:255]
             if pattern:
@@ -192,11 +240,59 @@ def _apply_recategorize(
     )
 
 
+def _parse_tx_id(raw) -> int | None:
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, (int, float)):
+        return int(raw)
+    if isinstance(raw, str) and raw.strip().lstrip("-").isdigit():
+        return int(raw.strip())
+    return None
+
+
+def _apply_split(db: Session, account_ids: list[int], categories: list[Category], action: dict) -> AdvisorActionResult:
+    tx_id = _parse_tx_id(action.get("transaction_id"))
+    raw_portions = action.get("portions") if isinstance(action.get("portions"), list) else []
+    if tx_id is None or not account_ids:
+        return AdvisorActionResult(type="split", detail="Missing transaction_id")
+    tx = (
+        db.query(Transaction)
+        .options(joinedload(Transaction.category), joinedload(Transaction.splits).joinedload(TransactionSplit.category))
+        .filter(Transaction.id == tx_id, Transaction.account_id.in_(account_ids))
+        .first()
+    )
+    if tx is None:
+        return AdvisorActionResult(type="split", detail="Transaction not found")
+    categories_by_id = {c.id: c for c in categories}
+    portions: list[dict] = []
+    for item in raw_portions:
+        if not isinstance(item, dict):
+            continue
+        amount_raw = item.get("amount")
+        if not isinstance(amount_raw, (int, float)):
+            continue
+        category = _resolve_category(str(item.get("category_name") or ""), categories)
+        category_id = category.id if category is not None else tx.category_id
+        portions.append(
+            {
+                "amount": signed_portion_amount(tx.amount, float(amount_raw)),
+                "label": str(item.get("label") or "Share")[:120],
+                "category_id": category_id,
+            }
+        )
+    error = validate_portions(tx, portions, categories_by_id)
+    if error:
+        return AdvisorActionResult(type="split", transaction_ids=[tx.id], detail=error)
+    replace_splits(db, tx, portions)
+    labels = ", ".join(f"{p['label']} {abs(p['amount']):.2f}" for p in portions)
+    return AdvisorActionResult(type="split", count=1, transaction_ids=[tx.id], detail=f"Split into {labels}")
+
+
 def run_advisor_chat(db: Session, user: User, payload: AdvisorChatIn) -> AdvisorChatOut:
     settings = get_settings()
     if not settings.deepseek_api:
         return AdvisorChatOut(reply="DeepSeek is not configured. Set DEEPSEEK_API in the backend environment.")
-    context = build_advisor_context(db, user.household_id, payload.year, payload.month)
+    context = build_advisor_context(db, user.household_id, payload.year, payload.month, payload.message)
     history = payload.history[-HISTORY_LIMIT:]
     messages: list[dict[str, str]] = [{"role": "system", "content": _system_prompt(context)}]
     for item in history:
@@ -211,13 +307,16 @@ def run_advisor_chat(db: Session, user: User, payload: AdvisorChatIn) -> Advisor
     categories = db.query(Category).filter(Category.household_id == user.household_id).all()
     results: list[AdvisorActionResult] = []
     remaining = RECATEGORIZE_CAP
+    splits_left = SPLIT_CAP
     for action in actions:
-        if remaining <= 0:
-            break
-        if action.get("type") != "recategorize":
-            continue
-        result = _apply_recategorize(db, account_ids, categories, action, remaining)
-        remaining -= result.count
-        results.append(result)
+        action_type = action.get("type")
+        if action_type == "recategorize" and remaining > 0:
+            result = _apply_recategorize(db, account_ids, categories, action, remaining)
+            remaining -= result.count
+            results.append(result)
+        elif action_type == "split" and splits_left > 0:
+            result = _apply_split(db, account_ids, categories, action)
+            splits_left -= result.count
+            results.append(result)
     mutated = any(r.count > 0 for r in results)
     return AdvisorChatOut(reply=reply, action_results=results, mutated=mutated)

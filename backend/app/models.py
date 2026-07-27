@@ -135,6 +135,15 @@ class CategoryRule(Base):
     category: Mapped["Category"] = relationship(back_populates="rules")
 
 
+class KnownCommerce(Base):
+    __tablename__ = "known_commerces"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    normalized_name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    display_name: Mapped[str] = mapped_column(String(255), default="")
+    category_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class Transaction(Base):
     __tablename__ = "transactions"
     __table_args__ = (UniqueConstraint("account_id", "external_id", name="uq_tx_account_external"),)
@@ -151,6 +160,19 @@ class Transaction(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     account: Mapped["Account"] = relationship(back_populates="transactions")
     category: Mapped["Category | None"] = relationship(back_populates="transactions")
+    splits: Mapped[list["TransactionSplit"]] = relationship(back_populates="transaction", cascade="all, delete-orphan", order_by="TransactionSplit.sort_order")
+
+
+class TransactionSplit(Base):
+    __tablename__ = "transaction_splits"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    transaction_id: Mapped[int] = mapped_column(ForeignKey("transactions.id"), nullable=False, index=True)
+    amount: Mapped[float] = mapped_column(Float, nullable=False)
+    label: Mapped[str] = mapped_column(String(120), default="")
+    category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"), nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    transaction: Mapped["Transaction"] = relationship(back_populates="splits")
+    category: Mapped["Category | None"] = relationship()
 
 
 class MonthlyStrategy(Base):

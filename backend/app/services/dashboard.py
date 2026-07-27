@@ -5,7 +5,7 @@ from datetime import date
 from sqlalchemy.orm import Session, joinedload
 
 from app.config import get_settings
-from app.models import Account, AccountType, BalanceSnapshot, Household, MonthlyStrategy, Transaction
+from app.models import Account, AccountType, BalanceSnapshot, Household, MonthlyStrategy, Transaction, TransactionSplit
 from app.schemas import (
     AccountOut,
     CategorySpendOut,
@@ -27,11 +27,47 @@ def category_kind(tx: Transaction) -> str | None:
     return tx.category.kind if tx.category is not None else None
 
 
+def split_kind(split) -> str | None:
+    if split.category is not None:
+        return split.category.kind
+    return None
+
+
+def tx_has_splits(tx: Transaction) -> bool:
+    return bool(getattr(tx, "splits", None))
+
+
+def spend_amount(tx: Transaction) -> float:
+    if not tx_has_splits(tx):
+        return tx.amount if is_spend_outflow(tx) else 0.0
+    total = 0.0
+    for split in tx.splits:
+        kind = split_kind(split) if split.category is not None else category_kind(tx)
+        if split.amount < 0 and kind not in NON_SPEND_KINDS:
+            total += split.amount
+    return total
+
+
+def invest_amount(tx: Transaction) -> float:
+    if not tx_has_splits(tx):
+        return tx.amount if is_invest_outflow(tx) else 0.0
+    total = 0.0
+    for split in tx.splits:
+        kind = split_kind(split) if split.category is not None else category_kind(tx)
+        if split.amount < 0 and kind == "investment":
+            total += split.amount
+    return total
+
+
 def is_spend_outflow(tx: Transaction) -> bool:
+    if tx_has_splits(tx):
+        return spend_amount(tx) < 0
     return tx.amount < 0 and category_kind(tx) not in NON_SPEND_KINDS
 
 
 def is_invest_outflow(tx: Transaction) -> bool:
+    if tx_has_splits(tx):
+        return invest_amount(tx) < 0
     return tx.amount < 0 and category_kind(tx) == "investment"
 
 
@@ -49,8 +85,8 @@ def month_wage_total(txs: list[Transaction]) -> float:
 
 def month_flow_totals(txs: list[Transaction]) -> tuple[float, float, float, float]:
     income = round(sum(t.amount for t in txs if is_income_inflow(t)), 2)
-    real_spend = round(abs(sum(t.amount for t in txs if is_spend_outflow(t))), 2)
-    invest_out = round(abs(sum(t.amount for t in txs if is_invest_outflow(t))), 2)
+    real_spend = round(abs(sum(spend_amount(t) for t in txs)), 2)
+    invest_out = round(abs(sum(invest_amount(t) for t in txs)), 2)
     save_amount = round(income - real_spend - invest_out, 2)
     return income, real_spend, invest_out, save_amount
 
@@ -203,7 +239,7 @@ def household_transactions(db: Session, household_id: int) -> list[Transaction]:
         return []
     return (
         db.query(Transaction)
-        .options(joinedload(Transaction.category))
+        .options(joinedload(Transaction.category), joinedload(Transaction.splits).joinedload(TransactionSplit.category))
         .filter(Transaction.account_id.in_(account_ids))
         .order_by(Transaction.booked_at.asc())
         .all()
@@ -219,7 +255,7 @@ def month_transactions(db: Session, household_id: int, year: int, month: int, al
     start, end = month_bounds(year, month)
     return (
         db.query(Transaction)
-        .options(joinedload(Transaction.category))
+        .options(joinedload(Transaction.category), joinedload(Transaction.splits).joinedload(TransactionSplit.category))
         .filter(Transaction.account_id.in_(account_ids), Transaction.booked_at >= start, Transaction.booked_at <= end)
         .all()
     )
@@ -282,6 +318,15 @@ def build_monthly_summary(db: Session, household_id: int, year: int, month: int,
 def spend_by_category(txs: list[Transaction], benchmarks: dict[str, float] | None = None) -> list[CategorySpendOut]:
     totals: dict[tuple[int | None, str, str], float] = defaultdict(float)
     for tx in txs:
+        if tx_has_splits(tx):
+            for split in tx.splits:
+                kind = split_kind(split) if split.category is not None else category_kind(tx)
+                if split.amount >= 0 or kind in NON_SPEND_KINDS:
+                    continue
+                cat = split.category if split.category is not None else tx.category
+                key = (cat.id if cat else None, cat.name if cat else "Uncategorized", cat.color if cat else "#9CA3AF")
+                totals[key] += abs(split.amount)
+            continue
         if not is_spend_outflow(tx):
             continue
         key = (tx.category_id, tx.category.name if tx.category else "Uncategorized", tx.category.color if tx.category else "#9CA3AF")

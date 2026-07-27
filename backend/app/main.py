@@ -5,9 +5,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
 
 from app.config import get_settings
-from app.database import Base, configure_sqlite_wal, engine
+from app.database import Base, SessionLocal, configure_sqlite_wal, engine
 from app.routers import accounts, advisor, auth, banking, dashboard, import_csv, transactions
 from app.seed import ensure_all_household_defaults
+from app.services.classification import backfill_known_commerces
 
 
 def ensure_schema() -> None:
@@ -32,8 +33,10 @@ def ensure_schema() -> None:
 async def lifespan(_: FastAPI):
     ensure_schema()
     ensure_all_household_defaults()
+    db = SessionLocal()
+    backfill_known_commerces(db)
+    db.close()
     yield
-
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name, lifespan=lifespan)

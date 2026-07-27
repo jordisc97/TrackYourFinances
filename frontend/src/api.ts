@@ -2,7 +2,11 @@ export type User = { id: number; email: string; display_name: string; role: stri
 export type Household = { id: number; name: string; invite_code: string; location?: string };
 export type Account = { id: number; name: string; institution: string; currency: string; account_type: string; source: string; is_active: boolean; latest_balance: number | null };
 export type Category = { id: number; name: string; kind: string; color: string };
-export type Transaction = { id: number; account_id: number; category_id: number | null; booked_at: string; amount: number; currency: string; raw_description: string; merchant: string; source: string; category_name: string | null };
+export type TransactionSplit = { id: number; amount: number; label: string; category_id: number | null; category_name: string | null; sort_order: number };
+export type Transaction = {
+  id: number; account_id: number; category_id: number | null; booked_at: string; amount: number; currency: string;
+  raw_description: string; merchant: string; source: string; category_name: string | null; splits?: TransactionSplit[];
+};
 export type Institution = { id: string; name: string; country: string; logo: string | null };
 export type BankConnection = { id: number; provider: string; institution_id: string; institution_name: string; status: string; consent_expires_at: string | null; last_synced_at: string | null };
 export type MonthlyStrategy = { year: number; month: number; save_pct: number; spend_pct: number; invest_pct: number };
@@ -112,7 +116,7 @@ export const api = {
   categories: () => request<Category[]>("/api/categories"),
   registerEmployers: (companies: string[]) =>
     request<{ created: number; companies: string[] }>("/api/categories/employers", { method: "POST", body: JSON.stringify({ companies }) }),
-  transactions: (opts?: { uncategorized?: boolean; year?: number; month?: number; category_id?: number | null; expenses_only?: boolean }) => {
+  transactions: (opts?: { uncategorized?: boolean; year?: number; month?: number; category_id?: number | null; expenses_only?: boolean; q?: string }) => {
     const q = new URLSearchParams();
     if (opts?.uncategorized) q.set("uncategorized", "true");
     if (opts?.year != null) q.set("year", String(opts.year));
@@ -120,10 +124,14 @@ export const api = {
     if (opts?.category_id === null) q.set("uncategorized_only", "true");
     else if (opts?.category_id != null) q.set("category_id", String(opts.category_id));
     if (opts?.expenses_only) q.set("expenses_only", "true");
+    if (opts?.q) q.set("q", opts.q);
     const suffix = q.toString() ? `?${q}` : "";
     return request<Transaction[]>(`/api/transactions${suffix}`);
   },
   assignCategory: (id: number, body: object) => request<Transaction>(`/api/transactions/${id}/assign`, { method: "POST", body: JSON.stringify(body) }),
+  splitTransaction: (id: number, portions: { amount: number; label: string; category_id: number | null }[]) =>
+    request<Transaction>(`/api/transactions/${id}/split`, { method: "POST", body: JSON.stringify({ portions }) }),
+  unsplitTransaction: (id: number) => request<Transaction>(`/api/transactions/${id}/split`, { method: "DELETE" }),
   importCsv: (accountId: number, file: File, overwrite = false, signal?: AbortSignal) =>
     uploadCsv("/api/import/csv", accountId, file, overwrite, signal),
   classifyTransactions: (accountId?: number, signal?: AbortSignal) => {

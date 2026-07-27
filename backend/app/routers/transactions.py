@@ -6,14 +6,36 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.deps import get_current_user
-from app.models import Account, Category, CategoryRule, Transaction, User
-from app.schemas import CategoryOut, ClassifyResult, EmployersIn, EmployersOut, TransactionAssignIn, TransactionOut
-from app.services.classification import classify_uncategorized, rematch_positive_inflows, register_employer_rules
+from app.models import Account, Category, CategoryRule, Transaction, TransactionSplit, User
+from app.schemas import (
+    CategoryOut,
+    ClassifyResult,
+    EmployersIn,
+    EmployersOut,
+    TransactionAssignIn,
+    TransactionOut,
+    TransactionSplitIn,
+    TransactionSplitOut,
+)
+from app.services.classification import classify_uncategorized, remember_commerce, rematch_positive_inflows, register_employer_rules
+from app.services.splits import clear_splits, replace_splits, signed_portion_amount, validate_portions
 
 router = APIRouter(prefix="/api", tags=["transactions"])
 
 
+def _split_out(split: TransactionSplit) -> TransactionSplitOut:
+    return TransactionSplitOut(
+        id=split.id,
+        amount=split.amount,
+        label=split.label,
+        category_id=split.category_id,
+        category_name=split.category.name if split.category else None,
+        sort_order=split.sort_order,
+    )
+
+
 def _tx_out(tx: Transaction) -> TransactionOut:
+    splits = [_split_out(s) for s in (tx.splits or [])]
     return TransactionOut(
         id=tx.id,
         account_id=tx.account_id,
@@ -25,7 +47,15 @@ def _tx_out(tx: Transaction) -> TransactionOut:
         merchant=tx.merchant,
         source=tx.source,
         category_name=tx.category.name if tx.category else None,
+        splits=splits,
     )
+
+
+def _tx_query(db: Session, account_ids: list[int]):
+    return db.query(Transaction).options(
+        joinedload(Transaction.category),
+        joinedload(Transaction.splits).joinedload(TransactionSplit.category),
+    ).filter(Transaction.account_id.in_(account_ids))
 
 
 @router.get("/transactions", response_model=list[TransactionOut])
@@ -36,6 +66,7 @@ def list_transactions(
     category_id: int | None = Query(None),
     uncategorized_only: bool = Query(False),
     expenses_only: bool = Query(False),
+    q: str | None = Query(None),
     limit: int = Query(200, le=1000),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -43,39 +74,80 @@ def list_transactions(
     account_ids = [a.id for a in db.query(Account).filter(Account.household_id == user.household_id).all()]
     if not account_ids:
         return []
-    q = db.query(Transaction).options(joinedload(Transaction.category)).filter(Transaction.account_id.in_(account_ids))
+    query = _tx_query(db, account_ids)
     if uncategorized or uncategorized_only:
-        q = q.filter(Transaction.category_id.is_(None))
-    elif category_id is not None:
-        q = q.filter(Transaction.category_id == category_id)
+        query = query.filter(Transaction.category_id.is_(None))
     if year is not None and month is not None:
         start = date(year, month, 1)
         end = date(year, month, monthrange(year, month)[1])
-        q = q.filter(Transaction.booked_at >= start, Transaction.booked_at <= end)
+        query = query.filter(Transaction.booked_at >= start, Transaction.booked_at <= end)
     if expenses_only:
-        q = q.filter(Transaction.amount < 0)
-    txs = q.order_by(Transaction.booked_at.desc()).limit(limit).all()
+        query = query.filter(Transaction.amount < 0)
+    if q:
+        needle = f"%{q.strip()}%"
+        query = query.filter((Transaction.merchant.ilike(needle)) | (Transaction.raw_description.ilike(needle)))
+    txs = query.order_by(Transaction.booked_at.desc()).limit(limit).all()
+    if category_id is not None:
+        txs = [
+            tx for tx in txs
+            if tx.category_id == category_id or any(s.category_id == category_id for s in (tx.splits or []))
+        ]
     return [_tx_out(t) for t in txs]
 
 
 @router.post("/transactions/{transaction_id}/assign", response_model=TransactionOut)
 def assign_category(transaction_id: int, payload: TransactionAssignIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> TransactionOut:
-    tx = db.query(Transaction).options(joinedload(Transaction.category), joinedload(Transaction.account)).filter(Transaction.id == transaction_id).first()
-    if tx is None or tx.account.household_id != user.household_id:
+    account_ids = [a.id for a in db.query(Account).filter(Account.household_id == user.household_id).all()]
+    tx = (
+        db.query(Transaction)
+        .options(joinedload(Transaction.category), joinedload(Transaction.account), joinedload(Transaction.splits).joinedload(TransactionSplit.category))
+        .filter(Transaction.id == transaction_id, Transaction.account_id.in_(account_ids))
+        .first()
+    )
+    if tx is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
     category = db.query(Category).filter(Category.id == payload.category_id, Category.household_id == user.household_id).first()
     if category is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
     tx.category_id = category.id
+    remember_commerce(db, tx.merchant, tx.raw_description, category.name)
     if payload.create_rule:
         pattern = payload.rule_pattern or tx.merchant or tx.raw_description
         if pattern:
             db.add(CategoryRule(category_id=category.id, pattern=pattern[:255], match_type="contains", priority=50))
     db.commit()
-    account_ids = [a.id for a in db.query(Account).filter(Account.household_id == user.household_id).all()]
     classify_uncategorized(db, user.household_id, account_ids)
-    tx = db.query(Transaction).options(joinedload(Transaction.category)).filter(Transaction.id == transaction_id).one()
+    tx = _tx_query(db, account_ids).filter(Transaction.id == transaction_id).one()
     return _tx_out(tx)
+
+
+@router.post("/transactions/{transaction_id}/split", response_model=TransactionOut)
+def split_transaction(transaction_id: int, payload: TransactionSplitIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> TransactionOut:
+    account_ids = [a.id for a in db.query(Account).filter(Account.household_id == user.household_id).all()]
+    tx = _tx_query(db, account_ids).filter(Transaction.id == transaction_id).first()
+    if tx is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
+    categories = db.query(Category).filter(Category.household_id == user.household_id).all()
+    categories_by_id = {c.id: c for c in categories}
+    portions = [
+        {"amount": signed_portion_amount(tx.amount, p.amount), "label": p.label, "category_id": p.category_id}
+        for p in payload.portions
+    ]
+    error = validate_portions(tx, portions, categories_by_id)
+    if error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error)
+    updated = replace_splits(db, tx, portions)
+    return _tx_out(updated)
+
+
+@router.delete("/transactions/{transaction_id}/split", response_model=TransactionOut)
+def unsplit_transaction(transaction_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> TransactionOut:
+    account_ids = [a.id for a in db.query(Account).filter(Account.household_id == user.household_id).all()]
+    tx = _tx_query(db, account_ids).filter(Transaction.id == transaction_id).first()
+    if tx is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
+    updated = clear_splits(db, tx)
+    return _tx_out(updated)
 
 
 @router.get("/categories", response_model=list[CategoryOut])

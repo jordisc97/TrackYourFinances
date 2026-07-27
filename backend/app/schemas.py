@@ -90,6 +90,16 @@ class CategoryOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class TransactionSplitOut(BaseModel):
+    id: int
+    amount: float
+    label: str
+    category_id: int | None
+    category_name: str | None = None
+    sort_order: int = 0
+    model_config = {"from_attributes": True}
+
+
 class TransactionOut(BaseModel):
     id: int
     account_id: int
@@ -101,6 +111,7 @@ class TransactionOut(BaseModel):
     merchant: str
     source: str
     category_name: str | None = None
+    splits: list[TransactionSplitOut] = Field(default_factory=list)
     model_config = {"from_attributes": True}
 
 
@@ -108,6 +119,16 @@ class TransactionAssignIn(BaseModel):
     category_id: int
     create_rule: bool = True
     rule_pattern: str | None = None
+
+
+class TransactionSplitPortionIn(BaseModel):
+    amount: float
+    label: str = ""
+    category_id: int | None = None
+
+
+class TransactionSplitIn(BaseModel):
+    portions: list[TransactionSplitPortionIn] = Field(min_length=2)
 
 
 class EmployersIn(BaseModel):
