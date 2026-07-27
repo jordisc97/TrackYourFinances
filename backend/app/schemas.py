@@ -110,6 +110,15 @@ class TransactionAssignIn(BaseModel):
     rule_pattern: str | None = None
 
 
+class EmployersIn(BaseModel):
+    companies: list[str]
+
+
+class EmployersOut(BaseModel):
+    created: int
+    companies: list[str]
+
+
 class AllocationPlanOut(BaseModel):
     spend_pct: float
     save_pct: float
@@ -152,6 +161,19 @@ class MonthNavRowOut(BaseModel):
     save_pct: float
     net_worth: float
     net_worth_delta_pct: float | None
+
+
+class StrategyHistoryRowOut(BaseModel):
+    year: int
+    month: int
+    label: str
+    salary: float
+    spend: float
+    save: float
+    invest: float
+    spend_pct: float
+    save_pct: float
+    invest_pct: float
 
 
 class InstitutionOut(BaseModel):
@@ -214,9 +236,11 @@ class DashboardOut(BaseModel):
     allocation: AllocationPlanOut
     strategy: MonthlyStrategyOut
     month_rows: list[MonthNavRowOut]
+    strategy_history: list[StrategyHistoryRowOut] = []
     wealth_no_invest_series: list[dict]
     wealth_with_invest_series: list[dict]
     wealth_projection: list[dict]
+    wealth_projection_no_invest: list[dict]
     projection_assumptions: dict
     benchmark_location: str = ""
     benchmark_source: str = ""
@@ -229,3 +253,34 @@ class ImportResult(BaseModel):
     categorized: int = 0
     account_id: int
     overwrite: bool = False
+
+
+class ClassifyResult(BaseModel):
+    categorized: int
+    account_id: int | None = None
+
+
+class AdvisorChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class AdvisorChatIn(BaseModel):
+    message: str = Field(min_length=1, max_length=4000)
+    history: list[AdvisorChatMessage] = Field(default_factory=list)
+    year: int
+    month: int = Field(ge=1, le=12)
+
+
+class AdvisorActionResult(BaseModel):
+    type: str
+    count: int = 0
+    category_name: str | None = None
+    transaction_ids: list[int] = Field(default_factory=list)
+    detail: str = ""
+
+
+class AdvisorChatOut(BaseModel):
+    reply: str
+    action_results: list[AdvisorActionResult] = Field(default_factory=list)
+    mutated: bool = False

@@ -5,12 +5,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
 
 from app.config import get_settings
-from app.database import Base, engine
-from app.routers import accounts, auth, banking, dashboard, import_csv, transactions
+from app.database import Base, configure_sqlite_wal, engine
+from app.routers import accounts, advisor, auth, banking, dashboard, import_csv, transactions
 from app.seed import ensure_all_household_defaults
 
 
 def ensure_schema() -> None:
+    configure_sqlite_wal()
     Base.metadata.create_all(bind=engine)
     inspector = inspect(engine)
     if "households" in inspector.get_table_names():
@@ -42,6 +43,7 @@ app.include_router(transactions.router)
 app.include_router(import_csv.router)
 app.include_router(banking.router)
 app.include_router(dashboard.router)
+app.include_router(advisor.router)
 
 
 @app.get("/")

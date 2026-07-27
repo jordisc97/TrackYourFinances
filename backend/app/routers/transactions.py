@@ -7,8 +7,8 @@ from sqlalchemy.orm import Session, joinedload
 from app.database import get_db
 from app.deps import get_current_user
 from app.models import Account, Category, CategoryRule, Transaction, User
-from app.schemas import CategoryOut, TransactionAssignIn, TransactionOut
-from app.services.classification import classify_uncategorized
+from app.schemas import CategoryOut, ClassifyResult, EmployersIn, EmployersOut, TransactionAssignIn, TransactionOut
+from app.services.classification import classify_uncategorized, rematch_positive_inflows, register_employer_rules
 
 router = APIRouter(prefix="/api", tags=["transactions"])
 
@@ -81,3 +81,25 @@ def assign_category(transaction_id: int, payload: TransactionAssignIn, user: Use
 @router.get("/categories", response_model=list[CategoryOut])
 def list_categories(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[Category]:
     return db.query(Category).filter(Category.household_id == user.household_id).order_by(Category.name).all()
+
+
+@router.post("/categories/employers", response_model=EmployersOut)
+def register_employers(payload: EmployersIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> EmployersOut:
+    created, companies = register_employer_rules(db, user.household_id, payload.companies)
+    if companies:
+        account_ids = [a.id for a in db.query(Account).filter(Account.household_id == user.household_id).all()]
+        if account_ids:
+            rematch_positive_inflows(db, user.household_id, account_ids)
+    return EmployersOut(created=created, companies=companies)
+
+
+@router.post("/transactions/classify", response_model=ClassifyResult)
+def classify_transactions(account_id: int | None = Query(None), user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> ClassifyResult:
+    accounts = db.query(Account).filter(Account.household_id == user.household_id).all()
+    if account_id is not None:
+        accounts = [account for account in accounts if account.id == account_id]
+    if not accounts:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+    account_ids = [account.id for account in accounts]
+    categorized = classify_uncategorized(db, user.household_id, account_ids, use_llm=True)
+    return ClassifyResult(categorized=categorized, account_id=account_id)

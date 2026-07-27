@@ -8,7 +8,7 @@ export default defineConfig({
     port: 5174,
     strictPort: true,
     proxy: {
-      "/api": "http://127.0.0.1:8001",
+      "/api": "http://127.0.0.1:8100",
     },
   },
 });

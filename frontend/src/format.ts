@@ -17,3 +17,18 @@ export function signedEuro(value: number) {
   if (value < 0) return `−${formatted}`;
   return formatted;
 }
+
+const EMPLOYER_SPLIT = /[,;\n]+/;
+
+export function parseEmployerNames(raw: string): string[] {
+  const seen = new Set<string>();
+  const names: string[] = [];
+  for (const part of raw.split(EMPLOYER_SPLIT)) {
+    const name = part.trim();
+    const key = name.toLowerCase();
+    if (!name || seen.has(key)) continue;
+    seen.add(key);
+    names.push(name);
+  }
+  return names;
+}

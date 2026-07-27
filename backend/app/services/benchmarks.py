@@ -5,7 +5,6 @@ from sqlalchemy.orm import Session
 
 from app.models import Household, SpendBenchmark
 from app.seed import EXPENSE_CATEGORY_NAMES
-from app.services.deepseek import benchmark_category_spend
 
 # Eurostat COICOP-style shares of consumption (EU ~2024), remapped to app categories.
 # Applied to a typical spend budget (~70% of net income) so amounts scale with salary.
@@ -58,39 +57,38 @@ def _parse_cached(row: SpendBenchmark | None) -> dict[str, float]:
     return {str(k): float(v) for k, v in raw.items() if k in EXPENSE_CATEGORY_NAMES}
 
 
-def get_or_refresh_benchmarks(db: Session, household: Household, monthly_income: float) -> tuple[dict[str, float], str, str]:
-    location = resolve_location(household)
-    income_key = round_income_for_cache(monthly_income)
+def _persist_benchmarks(db: Session, household: Household, location: str, income_key: float, amounts: dict[str, float], source: str) -> SpendBenchmark:
     cached = household.spend_benchmark
-    if (
-        cached is not None
-        and cached.location == location
-        and abs(cached.monthly_income - income_key) < 0.01
-        and cached.benchmarks_json
-    ):
-        return _parse_cached(cached), cached.source, location
-
-    llm_map = benchmark_category_spend(location, monthly_income, EXPENSE_CATEGORY_NAMES) if income_key > 0 else None
-    if llm_map:
-        amounts = {name: round(float(llm_map.get(name, 0.0)), 2) for name in EXPENSE_CATEGORY_NAMES}
-        source = "llm"
-    else:
-        amounts = {name: fallback_benchmarks(monthly_income).get(name, 0.0) for name in EXPENSE_CATEGORY_NAMES}
-        source = "eurostat_fallback"
-
-    payload = json.dumps(amounts)
     if cached is None:
         cached = SpendBenchmark(household_id=household.id)
         db.add(cached)
         household.spend_benchmark = cached
     cached.location = location
     cached.monthly_income = income_key
-    cached.benchmarks_json = payload
+    cached.benchmarks_json = json.dumps(amounts)
     cached.source = source
     cached.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(cached)
-    return amounts, source, location
+    return cached
+
+
+def get_or_refresh_benchmarks(db: Session, household: Household, monthly_income: float) -> tuple[dict[str, float], str, str]:
+    # Dashboard must stay instant: never call DeepSeek on this path.
+    location = resolve_location(household)
+    income_key = round_income_for_cache(monthly_income)
+    cached = household.spend_benchmark
+    if cached is not None and cached.location == location and cached.benchmarks_json:
+        amounts = _parse_cached(cached)
+        if amounts and cached.monthly_income > 0 and income_key > 0 and abs(cached.monthly_income - income_key) >= 0.01:
+            scale = income_key / cached.monthly_income
+            amounts = {name: round(value * scale, 2) for name, value in amounts.items()}
+            return amounts, cached.source, location
+        if amounts:
+            return amounts, cached.source, location
+    amounts = fallback_benchmarks(monthly_income)
+    _persist_benchmarks(db, household, location, income_key, amounts, "eurostat_fallback")
+    return amounts, "eurostat_fallback", location
 
 
 def invalidate_benchmarks(db: Session, household_id: int) -> None:

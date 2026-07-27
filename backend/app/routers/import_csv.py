@@ -5,7 +5,7 @@ from app.database import get_db
 from app.deps import get_current_user
 from app.models import Account, AccountType, User
 from app.schemas import ImportResult
-from app.services.csv_import import CsvMappingError, import_transactions_csv
+from app.services.csv_import import CsvMappingError, import_transactions_upload
 from app.services.investment_csv_import import import_investment_balances_csv
 
 router = APIRouter(prefix="/api/import", tags=["import"])
@@ -28,11 +28,18 @@ async def import_csv(
     db: Session = Depends(get_db),
 ) -> ImportResult:
     account = _household_account(db, account_id, user.household_id)
-    content = (await file.read()).decode("utf-8-sig")
     try:
-        imported, skipped, replaced, categorized = import_transactions_csv(db, account, content, overwrite=overwrite)
+        content_bytes = await file.read()
+        filename = file.filename or ""
+        imported, skipped, replaced, categorized = import_transactions_upload(db, account, filename, content_bytes, overwrite=overwrite)
     except CsvMappingError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Import failed: {exc}") from exc
     return ImportResult(imported=imported, skipped=skipped, replaced=replaced, categorized=categorized, account_id=account.id, overwrite=overwrite)
 
 

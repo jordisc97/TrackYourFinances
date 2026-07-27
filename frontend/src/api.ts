@@ -14,6 +14,11 @@ export type MonthNavRow = {
   year: number; month: number; label: string; income: number; real_spend: number;
   save_pct: number; net_worth: number; net_worth_delta_pct: number | null;
 };
+export type StrategyHistoryRow = {
+  year: number; month: number; label: string; salary: number;
+  spend: number; save: number; invest: number;
+  spend_pct: number; save_pct: number; invest_pct: number;
+};
 export type MonthlySummary = {
   year: number; month: number; income: number; real_spend: number; save_amount: number; save_pct: number;
   net_worth: number; net_worth_delta: number; net_worth_delta_pct: number | null; recommended_spend: number; recommended_save: number;
@@ -33,12 +38,23 @@ export type Dashboard = {
   net_worth: number; month: MonthlySummary; spend_by_category: CategorySpend[]; accounts: Account[];
   invested_total: number;
   allocation: Allocation; strategy: MonthlyStrategy; month_rows: MonthNavRow[];
+  strategy_history: StrategyHistoryRow[];
   wealth_no_invest_series: SeriesPoint[]; wealth_with_invest_series: SeriesPoint[];
-  wealth_projection: SeriesPoint[]; projection_assumptions: ProjectionAssumptions;
+  wealth_projection: SeriesPoint[]; wealth_projection_no_invest: SeriesPoint[]; projection_assumptions: ProjectionAssumptions;
   benchmark_location?: string; benchmark_source?: string;
 };
 
 export type ImportResult = { imported: number; skipped: number; replaced: number; categorized: number; account_id: number; overwrite: boolean };
+export type ClassifyResult = { categorized: number; account_id: number | null };
+export type AdvisorChatMessage = { role: "user" | "assistant"; content: string };
+export type AdvisorActionResult = {
+  type: string;
+  count: number;
+  category_name: string | null;
+  transaction_ids: number[];
+  detail: string;
+};
+export type AdvisorChatResult = { reply: string; action_results: AdvisorActionResult[]; mutated: boolean };
 
 const TOKEN_KEY = "tyf_token";
 
@@ -61,7 +77,14 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(path, { ...options, headers });
   if (!response.ok) {
     const detail = await response.text();
-    throw new Error(detail || response.statusText);
+    let message = detail || response.statusText;
+    try {
+      const parsed = JSON.parse(detail) as { detail?: string };
+      if (parsed.detail) message = parsed.detail;
+    } catch {
+      // keep raw text
+    }
+    throw new Error(message);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
@@ -90,6 +113,8 @@ export const api = {
   addBalance: (accountId: number, amount: number, snapshot_date?: string) =>
     request(`/api/accounts/${accountId}/balances`, { method: "POST", body: JSON.stringify({ amount, snapshot_date }) }),
   categories: () => request<Category[]>("/api/categories"),
+  registerEmployers: (companies: string[]) =>
+    request<{ created: number; companies: string[] }>("/api/categories/employers", { method: "POST", body: JSON.stringify({ companies }) }),
   transactions: (opts?: { uncategorized?: boolean; year?: number; month?: number; category_id?: number | null; expenses_only?: boolean }) => {
     const q = new URLSearchParams();
     if (opts?.uncategorized) q.set("uncategorized", "true");
@@ -102,13 +127,19 @@ export const api = {
     return request<Transaction[]>(`/api/transactions${suffix}`);
   },
   assignCategory: (id: number, body: object) => request<Transaction>(`/api/transactions/${id}/assign`, { method: "POST", body: JSON.stringify(body) }),
-  importCsv: (accountId: number, file: File, overwrite = false) => {
+  importCsv: (accountId: number, file: File, overwrite = false, signal?: AbortSignal) => {
     const form = new FormData();
     form.append("account_id", String(accountId));
     form.append("overwrite", String(overwrite));
     form.append("file", file);
-    return request<ImportResult>("/api/import/csv", { method: "POST", body: form });
+    return request<ImportResult>("/api/import/csv", { method: "POST", body: form, signal });
   },
+  classifyTransactions: (accountId?: number, signal?: AbortSignal) => {
+    const suffix = accountId != null ? `?account_id=${accountId}` : "";
+    return request<ClassifyResult>(`/api/transactions/classify${suffix}`, { method: "POST", signal });
+  },
+  advisorChat: (body: { message: string; history: AdvisorChatMessage[]; year: number; month: number }, signal?: AbortSignal) =>
+    request<AdvisorChatResult>("/api/advisor/chat", { method: "POST", body: JSON.stringify(body), signal }),
   importInvestmentCsv: (accountId: number, file: File, overwrite = false) => {
     const form = new FormData();
     form.append("account_id", String(accountId));

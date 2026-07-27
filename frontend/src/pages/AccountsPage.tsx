@@ -1,18 +1,20 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api, type Account } from "../api";
-import { euro } from "../format";
+import { euro, parseEmployerNames } from "../format";
 
 const ACCOUNT_TYPE_INVESTMENT = "investment";
 const DEFAULT_SNP_ACCOUNT_NAME = "S&P 500";
 const DEFAULT_SNP_INSTITUTION = "Index DCA";
 const IMPORT_MODE_APPEND = "append";
 const IMPORT_MODE_REPLACE = "replace";
+const EMPLOYER_PLACEHOLDER = "PayPal, HP, …";
 
 export function AccountsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [name, setName] = useState("");
   const [institution, setInstitution] = useState("");
   const [accountType, setAccountType] = useState("checking");
+  const [employerNames, setEmployerNames] = useState("");
   const [balanceAccountId, setBalanceAccountId] = useState<number | "">("");
   const [balanceAmount, setBalanceAmount] = useState("");
   const [investAccountId, setInvestAccountId] = useState<number | "">("");
@@ -39,9 +41,12 @@ export function AccountsPage() {
   async function createAccount(event: FormEvent) {
     event.preventDefault();
     await api.createAccount({ name, institution, account_type: accountType, source: "manual" });
+    const companies = parseEmployerNames(employerNames);
+    const employerNote = companies.length ? ` Employers saved: ${(await api.registerEmployers(companies)).companies.join(", ")}.` : "";
     setName("");
     setInstitution("");
-    setMessage("Account created");
+    setEmployerNames("");
+    setMessage(`Account created.${employerNote}`);
     await load();
   }
 
@@ -123,6 +128,11 @@ export function AccountsPage() {
                 <option value="investment">investment</option>
                 <option value="other">other</option>
               </select>
+            </label>
+            <label>
+              <div className="muted">Employers / salary companies</div>
+              <input value={employerNames} onChange={(e) => setEmployerNames(e.target.value)} placeholder={EMPLOYER_PLACEHOLDER} />
+              <span className="muted" style={{ fontSize: "0.85rem" }}>Comma-separated. Matching inflows count as wage Income; other positives as Transfers.</span>
             </label>
             <button type="submit">Create</button>
           </form>

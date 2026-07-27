@@ -11,6 +11,8 @@ DEEPSEEK_TIMEOUT_SECONDS = 20.0
 BENCHMARK_TIMEOUT_SECONDS = 45.0
 LLM_RULE_PRIORITY = 80
 CSV_MAPPING_SAMPLE_LIMIT = 3
+CLASSIFY_BATCH_LIMIT = 25
+CLASSIFY_BATCH_JSON_RE = re.compile(r'"id"\s*:\s*(\d+)\s*,\s*"category"\s*:\s*"([^"]+)"')
 
 
 def _message_content(payload: dict) -> str:
@@ -21,19 +23,54 @@ def _message_content(payload: dict) -> str:
     return str(message.get("content") or "") if isinstance(message, dict) else ""
 
 
-def _chat_completion(messages: list[dict[str, str]], timeout_seconds: float = DEEPSEEK_TIMEOUT_SECONDS) -> str | None:
+def _chat_completion(
+    messages: list[dict[str, str]],
+    timeout_seconds: float = DEEPSEEK_TIMEOUT_SECONDS,
+    temperature: float = 0,
+) -> str | None:
     settings = get_settings()
     if not settings.deepseek_api:
         return None
     url = f"{settings.deepseek_base_url.rstrip('/')}/chat/completions"
     headers = {"Authorization": f"Bearer {settings.deepseek_api}", "Content-Type": "application/json"}
-    body = {"model": settings.deepseek_model, "messages": messages, "temperature": 0}
+    body = {"model": settings.deepseek_model, "messages": messages, "temperature": temperature}
     with httpx.Client(timeout=timeout_seconds) as client:
         response = client.post(url, headers=headers, json=body)
     if response.status_code != 200:
         return None
     payload = response.json()
     return _message_content(payload) if isinstance(payload, dict) else None
+
+
+def advisor_chat(messages: list[dict[str, str]], temperature: float = 0.4) -> str | None:
+    return _chat_completion(messages, timeout_seconds=BENCHMARK_TIMEOUT_SECONDS, temperature=temperature)
+
+
+def classify_batch_with_deepseek(items: list[tuple[int, str, str, float, str]]) -> dict[int, str | None] | None:
+    if not items:
+        return {}
+    allowed = ", ".join(EXPENSE_CATEGORY_NAMES)
+    lines = [f'id={tx_id}; description={description!r}; merchant={merchant!r}; amount={amount}; currency={currency}' for tx_id, description, merchant, amount, currency in items[:CLASSIFY_BATCH_LIMIT]]
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "Classify each bank transaction into exactly one expense category. "
+                'Reply with JSON array only: [{"id":1,"category":"<name>"}, ...]. '
+                f"Allowed names: {allowed}. "
+                "Groceries = supermarket/home food; Dining & Takeaway = restaurants/delivery/cafes/bars."
+            ),
+        },
+        {"role": "user", "content": "\n".join(lines)},
+    ]
+    content = _chat_completion(messages, timeout_seconds=BENCHMARK_TIMEOUT_SECONDS)
+    if not content:
+        return None
+    result: dict[int, str | None] = {tx_id: None for tx_id, *_ in items[:CLASSIFY_BATCH_LIMIT]}
+    for match in CLASSIFY_BATCH_JSON_RE.finditer(content):
+        tx_id, name = int(match.group(1)), match.group(2).strip()
+        result[tx_id] = name if name in EXPENSE_CATEGORY_NAMES else None
+    return result
 
 
 def classify_with_deepseek(description: str, merchant: str, amount: float, currency: str) -> str | None:

@@ -14,24 +14,24 @@ MAPPING_SOURCE_HYBRID = "hybrid"
 # Normalized header patterns (accents/spaces stripped) per schema field — bank-agnostic aliases.
 FIELD_PATTERNS: dict[str, tuple[re.Pattern[str], ...]] = {
     "booked_at": (
-        re.compile(r"^(bookedat|bookingdate|valuedate|transactiondate|completeddate|operationdate|fechaoperacion|fechavalor|fechacontable|fecha|date)$"),
-        re.compile(r"fecha(operacion|valor|contable)?|(booking|value|transaction|completed|operation)date"),
+        re.compile(r"^(bookedat|bookingdate|valuedate|transactiondate|completeddate|operationdate|fechaoperacion|fechavalor|fechacontable|fecha|date|doperativa|dvalor|dataoperacio|datavaloracio|datavalor|data)$"),
+        re.compile(r"fecha(operacion|valor|contable)?|(booking|value|transaction|completed|operation)date|d(ata)?\.?\s*(operati|valor)"),
     ),
     "amount": (
-        re.compile(r"^(amount|importe|transactionamount|monto|suma|cantidad|value|quantidade|betrag)$"),
-        re.compile(r"amount|importe|monto|betrag|cantidad|suma"),
+        re.compile(r"^(amount|importe|import|transactionamount|monto|suma|cantidad|value|quantidade|betrag|importacion)$"),
+        re.compile(r"amount|importe|import$|monto|betrag|cantidad|suma"),
     ),
     "raw_description": (
-        re.compile(r"^(rawdescription|description|concepto|narration|details|memo|notes|remittance|info|descripcion|beschreibung)$"),
-        re.compile(r"description|concepto|narration|remittance|descripcion|beschreibung"),
+        re.compile(r"^(rawdescription|description|concepto|concepte|narration|details|memo|notes|remittance|info|descripcion|beschreibung|detall)$"),
+        re.compile(r"description|concepto|concepte|narration|remittance|descripcion|beschreibung|detall"),
     ),
     "merchant": (
         re.compile(r"^(merchant|counterparty|payee|beneficiary|beneficiario|comercio|establecimiento|counterpartname|creditor|debtor)$"),
         re.compile(r"merchant|counterparty|payee|beneficiar|comercio|creditor|debtor|establecimiento"),
     ),
     "external_id": (
-        re.compile(r"^(externalid|transactionid|bookingid|txid|id|uuid|referenceid)$"),
-        re.compile(r"externalid|transactionid|bookingid|^id$"),
+        re.compile(r"^(externalid|transactionid|bookingid|txid|id|uuid|referenceid|referencia|referencia1|referencia2)$"),
+        re.compile(r"externalid|transactionid|bookingid|^id$|^referencia"),
     ),
 }
 

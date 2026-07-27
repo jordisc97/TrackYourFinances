@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     enable_banking_app_id: str = ""
     enable_banking_private_key_path: str = ""
     enable_banking_base_url: str = "https://api.enablebanking.com"
-    enable_banking_redirect_url: str = "http://127.0.0.1:8001/api/banking/callback"
+    enable_banking_redirect_url: str = "http://127.0.0.1:8100/api/banking/callback"
     enable_banking_country: str = "ES"
     jwt_expire_minutes: int = 60 * 24 * 7
     jwt_algorithm: str = "HS256"
