@@ -119,25 +119,9 @@ class EmployersOut(BaseModel):
     companies: list[str]
 
 
-class AllocationPlanOut(BaseModel):
-    spend_pct: float
-    save_pct: float
-    invest_pct: float
-    model_config = {"from_attributes": True}
-
-
-class AllocationPlanIn(BaseModel):
-    spend_pct: float
-    save_pct: float
-    invest_pct: float
-
-
 class MonthlyStrategyOut(BaseModel):
     year: int
     month: int
-    crypto_pct: float
-    stocks_pct: float
-    etfs_pct: float
     save_pct: float
     spend_pct: float
     invest_pct: float
@@ -145,11 +129,9 @@ class MonthlyStrategyOut(BaseModel):
 
 
 class MonthlyStrategyIn(BaseModel):
-    crypto_pct: float = 10
-    stocks_pct: float = 10
-    etfs_pct: float = 10
-    save_pct: float = 40
-    spend_pct: float = 30
+    save_pct: float
+    spend_pct: float
+    invest_pct: float
 
 
 class MonthNavRowOut(BaseModel):
@@ -161,19 +143,6 @@ class MonthNavRowOut(BaseModel):
     save_pct: float
     net_worth: float
     net_worth_delta_pct: float | None
-
-
-class StrategyHistoryRowOut(BaseModel):
-    year: int
-    month: int
-    label: str
-    salary: float
-    spend: float
-    save: float
-    invest: float
-    spend_pct: float
-    save_pct: float
-    invest_pct: float
 
 
 class InstitutionOut(BaseModel):
@@ -233,12 +202,9 @@ class DashboardOut(BaseModel):
     spend_by_category: list[CategorySpendOut]
     accounts: list[AccountOut]
     invested_total: float = 0.0
-    allocation: AllocationPlanOut
     strategy: MonthlyStrategyOut
     month_rows: list[MonthNavRowOut]
-    strategy_history: list[StrategyHistoryRowOut] = []
-    wealth_no_invest_series: list[dict]
-    wealth_with_invest_series: list[dict]
+    wealth_series: list[dict]
     wealth_projection: list[dict]
     wealth_projection_no_invest: list[dict]
     projection_assumptions: dict

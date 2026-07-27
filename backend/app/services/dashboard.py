@@ -4,25 +4,19 @@ from datetime import date
 
 from sqlalchemy.orm import Session, joinedload
 
-from app.models import Account, AccountType, BalanceSnapshot, Household, IncomeAllocationPlan, MonthlyStrategy, Transaction
+from app.config import get_settings
+from app.models import Account, AccountType, BalanceSnapshot, Household, MonthlyStrategy, Transaction
 from app.schemas import (
     AccountOut,
-    AllocationPlanOut,
     CategorySpendOut,
     DashboardOut,
     MonthNavRowOut,
     MonthlyStrategyOut,
     MonthlySummaryOut,
-    StrategyHistoryRowOut,
 )
 from app.services.benchmarks import get_or_refresh_benchmarks
 
 SP500_ANNUAL_RETURN = 0.10
-DEFAULT_CRYPTO_PCT = 10.0
-DEFAULT_STOCKS_PCT = 10.0
-DEFAULT_ETFS_PCT = 10.0
-DEFAULT_SAVE_PCT = 40.0
-DEFAULT_SPEND_PCT = 30.0
 NON_SPEND_KINDS = ("transfer", "investment")
 NON_INCOME_KINDS = ("transfer", "investment")
 INCOME_KIND = "income"
@@ -232,17 +226,7 @@ def month_transactions(db: Session, household_id: int, year: int, month: int, al
 
 
 def strategy_out(row: MonthlyStrategy) -> MonthlyStrategyOut:
-    invest = round(row.crypto_pct + row.stocks_pct + row.etfs_pct, 2)
-    return MonthlyStrategyOut(
-        year=row.year,
-        month=row.month,
-        crypto_pct=row.crypto_pct,
-        stocks_pct=row.stocks_pct,
-        etfs_pct=row.etfs_pct,
-        save_pct=row.save_pct,
-        spend_pct=row.spend_pct,
-        invest_pct=invest,
-    )
+    return MonthlyStrategyOut(year=row.year, month=row.month, save_pct=row.save_pct, spend_pct=row.spend_pct, invest_pct=row.invest_pct)
 
 
 def get_or_create_strategy(db: Session, household_id: int, year: int, month: int) -> MonthlyStrategy:
@@ -253,16 +237,8 @@ def get_or_create_strategy(db: Session, household_id: int, year: int, month: int
     )
     if row is not None:
         return row
-    row = MonthlyStrategy(
-        household_id=household_id,
-        year=year,
-        month=month,
-        crypto_pct=DEFAULT_CRYPTO_PCT,
-        stocks_pct=DEFAULT_STOCKS_PCT,
-        etfs_pct=DEFAULT_ETFS_PCT,
-        save_pct=DEFAULT_SAVE_PCT,
-        spend_pct=DEFAULT_SPEND_PCT,
-    )
+    settings = get_settings()
+    row = MonthlyStrategy(household_id=household_id, year=year, month=month, spend_pct=settings.default_spend_pct, save_pct=settings.default_save_pct, invest_pct=settings.default_invest_pct)
     db.add(row)
     db.commit()
     db.refresh(row)
@@ -271,7 +247,7 @@ def get_or_create_strategy(db: Session, household_id: int, year: int, month: int
 
 def build_monthly_summary(db: Session, household_id: int, year: int, month: int, txs: list[Transaction] | None = None, strategy: MonthlyStrategy | None = None, month_rows: list[MonthNavRowOut] | None = None) -> MonthlySummaryOut:
     strategy = strategy or get_or_create_strategy(db, household_id, year, month)
-    invest_pct = strategy.crypto_pct + strategy.stocks_pct + strategy.etfs_pct
+    invest_pct = strategy.invest_pct
     txs = txs if txs is not None else month_transactions(db, household_id, year, month)
     wage, real_spend, invest_out, save_amount, save_pct, _ = month_table_flow(txs)
     prev_month = month - 1 or 12
@@ -306,9 +282,7 @@ def build_monthly_summary(db: Session, household_id: int, year: int, month: int,
 def spend_by_category(txs: list[Transaction], benchmarks: dict[str, float] | None = None) -> list[CategorySpendOut]:
     totals: dict[tuple[int | None, str, str], float] = defaultdict(float)
     for tx in txs:
-        if tx.amount >= 0:
-            continue
-        if tx.category and tx.category.kind in ("transfer", "investment"):
+        if not is_spend_outflow(tx):
             continue
         key = (tx.category_id, tx.category.name if tx.category else "Uncategorized", tx.category.color if tx.category else "#9CA3AF")
         totals[key] += abs(tx.amount)
@@ -345,18 +319,6 @@ def _month_ends(through_year: int, through_month: int, months: int = 12) -> list
     return points
 
 
-def wealth_series(db: Session, household_id: int, include_investments: bool, through_year: int, through_month: int, months: int = 12) -> list[dict]:
-    accounts = active_accounts(db, household_id)
-    if not include_investments:
-        accounts = [a for a in accounts if a.account_type != AccountType.investment.value]
-    ends = _month_ends(through_year, through_month, months)
-    balances_by_date = account_balances_on_dates(db, accounts, [end for _, end in ends])
-    points = [{"label": label, "value": round(sum(balances_by_date[end].values()), 2)} for label, end in ends]
-    while len(points) > 2 and points[0]["value"] == 0:
-        points.pop(0)
-    return points
-
-
 def iter_months(start: tuple[int, int], end: tuple[int, int]):
     y, m = start
     while (y, m) <= end:
@@ -386,33 +348,6 @@ def build_month_rows(db: Session, household_id: int, all_txs: list[Transaction] 
         rows.append(MonthNavRowOut(year=y, month=m, label=month_label(y, m), income=wage, real_spend=real_spend, save_pct=save_pct, net_worth=wealth, net_worth_delta_pct=delta))
         prev_wealth = wealth
     return rows
-
-
-def build_strategy_history(db: Session, household_id: int, month_rows: list[MonthNavRowOut]) -> list[StrategyHistoryRowOut]:
-    strategies = db.query(MonthlyStrategy).filter(MonthlyStrategy.household_id == household_id).all()
-    by_key = {(row.year, row.month): row for row in strategies}
-    history: list[StrategyHistoryRowOut] = []
-    for month_row in reversed(month_rows):
-        stored = by_key.get((month_row.year, month_row.month))
-        spend_pct = float(stored.spend_pct) if stored is not None else DEFAULT_SPEND_PCT
-        save_pct = float(stored.save_pct) if stored is not None else DEFAULT_SAVE_PCT
-        invest_pct = round(float(stored.crypto_pct + stored.stocks_pct + stored.etfs_pct), 2) if stored is not None else round(DEFAULT_CRYPTO_PCT + DEFAULT_STOCKS_PCT + DEFAULT_ETFS_PCT, 2)
-        salary = float(month_row.income)
-        history.append(
-            StrategyHistoryRowOut(
-                year=month_row.year,
-                month=month_row.month,
-                label=month_row.label,
-                salary=salary,
-                spend=round(salary * spend_pct / 100, 2),
-                save=round(salary * save_pct / 100, 2),
-                invest=round(salary * invest_pct / 100, 2),
-                spend_pct=spend_pct,
-                save_pct=save_pct,
-                invest_pct=invest_pct,
-            )
-        )
-    return history
 
 
 def average_income_spend(db: Session, household_id: int, month_rows: list[MonthNavRowOut] | None = None) -> tuple[float, float]:
@@ -474,7 +409,7 @@ def build_wealth_projection(
     start_wealth = round(current_row.net_worth, 2) if current_row is not None else 0.0
     spend_pct = strategy.spend_pct
     save_pct = strategy.save_pct
-    invest_pct = strategy.crypto_pct + strategy.stocks_pct + strategy.etfs_pct
+    invest_pct = strategy.invest_pct
     points = _project_forward_from_wealth(start_wealth, base_income, spend_pct, save_pct, invest_pct, through_year, through_month, 12)
     points_no_invest = _project_forward_no_invest_from_wealth(start_wealth, base_income, save_pct, invest_pct, through_year, through_month, 12)
     assumptions = {
@@ -511,7 +446,6 @@ def build_dashboard(db: Session, household_id: int, year: int | None = None, mon
     balances = balances_by_date[month_end]
     invested_total = round(sum(balances[account.id] for account in accounts if account.account_type == AccountType.investment.value), 2)
     txs = month_transactions(db, household_id, year, month, all_txs)
-    plan = db.query(IncomeAllocationPlan).filter(IncomeAllocationPlan.household_id == household_id).one()
     strategy = get_or_create_strategy(db, household_id, year, month)
     projection, projection_no_invest, assumptions = build_wealth_projection(
         db, household_id, strategy, year, month, month_rows=month_rows, month_txs=txs
@@ -534,12 +468,9 @@ def build_dashboard(db: Session, household_id: int, year: int | None = None, mon
         spend_by_category=spend_by_category(txs, benchmarks),
         accounts=account_outs,
         invested_total=invested_total,
-        allocation=AllocationPlanOut.model_validate(plan),
         strategy=strategy_out(strategy),
         month_rows=month_rows,
-        strategy_history=build_strategy_history(db, household_id, month_rows),
-        wealth_no_invest_series=wealth_series_data,
-        wealth_with_invest_series=wealth_series_data,
+        wealth_series=wealth_series_data,
         wealth_projection=projection,
         wealth_projection_no_invest=projection_no_invest,
         projection_assumptions=assumptions,

@@ -98,7 +98,7 @@ def build_advisor_context(db: Session, household_id: int, year: int, month: int)
         "strategy": {
             "spend_pct": strategy.spend_pct,
             "save_pct": strategy.save_pct,
-            "invest_pct": round(strategy.crypto_pct + strategy.stocks_pct + strategy.etfs_pct, 2),
+            "invest_pct": strategy.invest_pct,
         },
         "spend_by_category": [
             {

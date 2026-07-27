@@ -2,9 +2,8 @@ import secrets
 
 from sqlalchemy.orm import Session
 
-from app.config import get_settings
 from app.database import SessionLocal
-from app.models import Category, CategoryRule, Household, IncomeAllocationPlan
+from app.models import Category, CategoryRule, Household
 
 
 DEFAULT_CATEGORIES = [
@@ -83,13 +82,10 @@ def ensure_default_categories(db: Session, household_id: int) -> None:
 
 
 def seed_household_defaults(db: Session, household: Household) -> None:
-    settings = get_settings()
     for name, kind, color in DEFAULT_CATEGORIES:
         db.add(Category(household_id=household.id, name=name, kind=kind, color=color, is_system=True))
     db.flush()
     ensure_default_category_rules(db, household.id)
-    db.add(IncomeAllocationPlan(household_id=household.id, spend_pct=settings.default_spend_pct, save_pct=settings.default_save_pct, invest_pct=settings.default_invest_pct))
-    db.flush()
 
 
 def ensure_all_household_defaults() -> None:

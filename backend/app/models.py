@@ -48,7 +48,6 @@ class Household(Base):
     users: Mapped[list["User"]] = relationship(back_populates="household")
     accounts: Mapped[list["Account"]] = relationship(back_populates="household")
     categories: Mapped[list["Category"]] = relationship(back_populates="household")
-    allocation_plan: Mapped["IncomeAllocationPlan | None"] = relationship(back_populates="household", uselist=False)
     bank_connections: Mapped[list["BankConnection"]] = relationship(back_populates="household")
     monthly_strategies: Mapped[list["MonthlyStrategy"]] = relationship(back_populates="household")
     spend_benchmark: Mapped["SpendBenchmark | None"] = relationship(back_populates="household", uselist=False)
@@ -154,16 +153,6 @@ class Transaction(Base):
     category: Mapped["Category | None"] = relationship(back_populates="transactions")
 
 
-class IncomeAllocationPlan(Base):
-    __tablename__ = "income_allocation_plans"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    household_id: Mapped[int] = mapped_column(ForeignKey("households.id"), unique=True, nullable=False)
-    spend_pct: Mapped[float] = mapped_column(Float, nullable=False)
-    save_pct: Mapped[float] = mapped_column(Float, nullable=False)
-    invest_pct: Mapped[float] = mapped_column(Float, nullable=False)
-    household: Mapped["Household"] = relationship(back_populates="allocation_plan")
-
-
 class MonthlyStrategy(Base):
     __tablename__ = "monthly_strategies"
     __table_args__ = (UniqueConstraint("household_id", "year", "month", name="uq_strategy_household_month"),)
@@ -171,11 +160,9 @@ class MonthlyStrategy(Base):
     household_id: Mapped[int] = mapped_column(ForeignKey("households.id"), nullable=False)
     year: Mapped[int] = mapped_column(Integer, nullable=False)
     month: Mapped[int] = mapped_column(Integer, nullable=False)
-    crypto_pct: Mapped[float] = mapped_column(Float, default=10.0)
-    stocks_pct: Mapped[float] = mapped_column(Float, default=10.0)
-    etfs_pct: Mapped[float] = mapped_column(Float, default=10.0)
-    save_pct: Mapped[float] = mapped_column(Float, default=40.0)
-    spend_pct: Mapped[float] = mapped_column(Float, default=30.0)
+    spend_pct: Mapped[float] = mapped_column(Float, default=50.0)
+    save_pct: Mapped[float] = mapped_column(Float, default=25.0)
+    invest_pct: Mapped[float] = mapped_column(Float, default=25.0)
     household: Mapped["Household"] = relationship(back_populates="monthly_strategies")
 
 

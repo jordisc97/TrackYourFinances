@@ -19,6 +19,13 @@ def ensure_schema() -> None:
         if "location" not in cols:
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE households ADD COLUMN location VARCHAR(120) DEFAULT ''"))
+    if "monthly_strategies" in inspector.get_table_names():
+        cols = {c["name"] for c in inspector.get_columns("monthly_strategies")}
+        if "invest_pct" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE monthly_strategies ADD COLUMN invest_pct FLOAT DEFAULT 25.0"))
+                if "crypto_pct" in cols:
+                    conn.execute(text("UPDATE monthly_strategies SET invest_pct = COALESCE(crypto_pct, 0) + COALESCE(stocks_pct, 0) + COALESCE(etfs_pct, 0)"))
 
 
 @asynccontextmanager

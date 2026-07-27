@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { api, type CategorySpend, type Dashboard, type MonthNavRow, type SeriesPoint, type StrategyHistoryRow, type Transaction } from "../api";
+import { api, type CategorySpend, type Dashboard, type MonthNavRow, type SeriesPoint, type Transaction } from "../api";
 import { AdvisorChat } from "../components/AdvisorChat";
 import { axisMoney, euro, signedEuro, whole } from "../format";
 
@@ -10,25 +10,6 @@ const PCT_TOTAL_TARGET = 100;
 
 function themeColor(token: string) {
   return getComputedStyle(document.documentElement).getPropertyValue(token).trim();
-}
-
-function roundMoney(value: number) {
-  return Math.round(value * 100) / 100;
-}
-
-function withDerivedAmounts(row: StrategyHistoryRow): StrategyHistoryRow {
-  return {
-    ...row,
-    spend: roundMoney(row.salary * row.spend_pct / PCT_TOTAL_TARGET),
-    save: roundMoney(row.salary * row.save_pct / PCT_TOTAL_TARGET),
-    invest: roundMoney(row.salary * row.invest_pct / PCT_TOTAL_TARGET),
-  };
-}
-
-function investShares(investPct: number) {
-  const share = Math.round((investPct / 3) * 100) / 100;
-  const remainder = Math.round((investPct - share * 2) * 100) / 100;
-  return { crypto_pct: share, stocks_pct: share, etfs_pct: remainder };
 }
 
 function toTimeSeries(points: SeriesPoint[]) {
@@ -130,88 +111,19 @@ function CompareBar({ label, actual, plan, color }: { label: string; actual: num
   );
 }
 
-type StrategyField = "spend_pct" | "save_pct" | "invest_pct";
-
-function StrategyHistoryTable({
-  rows,
-  year,
-  month,
-  onChangeRow,
-  onCommitRow,
-}: {
-  rows: StrategyHistoryRow[];
-  year: number;
-  month: number;
-  onChangeRow: (year: number, month: number, field: StrategyField, value: number) => void;
-  onCommitRow: (year: number, month: number) => void;
-}) {
-  return (
-    <div className="strategy-sheet">
-      <div className="strategy-sheet-scroll">
-        <table className="strategy-sheet-table">
-          <thead>
-            <tr>
-              <th>Month</th>
-              <th>Salary</th>
-              <th>Spend</th>
-              <th>Save</th>
-              <th>Invest</th>
-              <th>Spend %</th>
-              <th>Save %</th>
-              <th>Invest %</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => {
-              const active = row.year === year && row.month === month;
-              const total = Math.round(row.spend_pct + row.save_pct + row.invest_pct);
-              return (
-                <tr key={`${row.year}-${row.month}`} className={`${active ? "is-active" : ""}${total !== PCT_TOTAL_TARGET ? " is-warn" : ""}`}>
-                  <td>{row.label}</td>
-                  <td className="is-readonly">{euro.format(row.salary)}</td>
-                  <td className="is-readonly">{euro.format(row.spend)}</td>
-                  <td className="is-readonly">{euro.format(row.save)}</td>
-                  <td className="is-readonly">{euro.format(row.invest)}</td>
-                  {(["spend_pct", "save_pct", "invest_pct"] as const).map((field) => (
-                    <td key={field}>
-                      <input
-                        type="number"
-                        step="1"
-                        min={0}
-                        max={100}
-                        value={row[field]}
-                        onChange={(e) => onChangeRow(row.year, row.month, field, Number(e.target.value))}
-                        onBlur={() => onCommitRow(row.year, row.month)}
-                      />
-                    </td>
-                  ))}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      {rows.length === 0 && <p className="muted">No months yet — import transactions to build strategy history.</p>}
-    </div>
-  );
-}
-
 export function DashboardPage() {
   const [year, setYear] = useState<number | undefined>(undefined);
   const [month, setMonth] = useState<number | undefined>(undefined);
   const [data, setData] = useState<Dashboard | null>(null);
-  const [spendPct, setSpendPct] = useState(30);
-  const [savePct, setSavePct] = useState(40);
-  const [investPct, setInvestPct] = useState(30);
-  const [strategyRows, setStrategyRows] = useState<StrategyHistoryRow[]>([]);
-  const strategyRowsRef = useRef<StrategyHistoryRow[]>([]);
+  const [spendPct, setSpendPct] = useState(50);
+  const [savePct, setSavePct] = useState(25);
+  const [investPct, setInvestPct] = useState(25);
   const [message, setMessage] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<CategorySpend | null>(null);
   const [categoryExpenses, setCategoryExpenses] = useState<Transaction[]>([]);
   const [loadingExpenses, setLoadingExpenses] = useState(false);
 
   const planTotal = spendPct + savePct + investPct;
-  strategyRowsRef.current = strategyRows;
 
   async function load(selectedYear?: number, selectedMonth?: number) {
     const dash = await api.dashboard(selectedYear, selectedMonth);
@@ -221,7 +133,6 @@ export function DashboardPage() {
     setSpendPct(dash.strategy.spend_pct);
     setSavePct(dash.strategy.save_pct);
     setInvestPct(dash.strategy.invest_pct);
-    setStrategyRows(dash.strategy_history.map(withDerivedAmounts));
     setSelectedCategory(null);
     setCategoryExpenses([]);
   }
@@ -230,59 +141,21 @@ export function DashboardPage() {
     load().catch((err: Error) => setMessage(err.message));
   }, []);
 
-  useEffect(() => {
-    if (year == null || month == null) return;
-    setStrategyRows((current) =>
-      current.map((row) =>
-        row.year === year && row.month === month
-          ? withDerivedAmounts({ ...row, spend_pct: spendPct, save_pct: savePct, invest_pct: investPct })
-          : row
-      )
-    );
-  }, [spendPct, savePct, investPct, year, month]);
-
   async function changePeriod(nextYear: number, nextMonth: number) {
     setYear(nextYear);
     setMonth(nextMonth);
     await load(nextYear, nextMonth);
   }
 
-  async function persistStrategy(targetYear: number, targetMonth: number, nextSpend: number, nextSave: number, nextInvest: number) {
-    if (Math.round(nextSpend + nextSave + nextInvest) !== PCT_TOTAL_TARGET) {
+  async function saveStrategy() {
+    if (year == null || month == null) return;
+    if (Math.round(spendPct + savePct + investPct) !== PCT_TOTAL_TARGET) {
       setMessage("Strategy must total 100%");
       return;
     }
-    const shares = investShares(nextInvest);
-    await api.updateStrategy(targetYear, targetMonth, {
-      ...shares,
-      save_pct: nextSave,
-      spend_pct: nextSpend,
-    });
-    setMessage(targetYear === year && targetMonth === month ? "Strategy saved" : `Saved strategy for ${targetMonth}/${targetYear}`);
-    if (targetYear === year && targetMonth === month) await load(targetYear, targetMonth);
-  }
-
-  async function saveStrategy() {
-    if (year == null || month == null) return;
-    await persistStrategy(year, month, spendPct, savePct, investPct);
-  }
-
-  function changeStrategyRow(targetYear: number, targetMonth: number, field: StrategyField, value: number) {
-    const existing = strategyRowsRef.current.find((row) => row.year === targetYear && row.month === targetMonth);
-    if (!existing) return;
-    const derived = withDerivedAmounts({ ...existing, [field]: value });
-    setStrategyRows((current) => current.map((row) => (row.year === targetYear && row.month === targetMonth ? derived : row)));
-    if (targetYear === year && targetMonth === month) {
-      setSpendPct(derived.spend_pct);
-      setSavePct(derived.save_pct);
-      setInvestPct(derived.invest_pct);
-    }
-  }
-
-  async function commitStrategyRow(targetYear: number, targetMonth: number) {
-    const row = strategyRowsRef.current.find((item) => item.year === targetYear && item.month === targetMonth);
-    if (!row) return;
-    await persistStrategy(targetYear, targetMonth, row.spend_pct, row.save_pct, row.invest_pct);
+    await api.updateStrategy(year, month, { spend_pct: spendPct, save_pct: savePct, invest_pct: investPct });
+    setMessage("Strategy saved");
+    await load(year, month);
   }
 
   async function selectCategory(entry: CategorySpend) {
@@ -355,13 +228,6 @@ export function DashboardPage() {
             <CompareBar label="Save" actual={m.actual_save_pct} plan={savePct} color="var(--save)" />
             <CompareBar label="Invest" actual={m.actual_invest_pct} plan={investPct} color="var(--invest)" />
           </div>
-          <StrategyHistoryTable
-            rows={strategyRows}
-            year={year}
-            month={month}
-            onChangeRow={changeStrategyRow}
-            onCommitRow={(y, mo) => commitStrategyRow(y, mo).catch((err: Error) => setMessage(err.message))}
-          />
         </div>
 
         <div className="panel cat-panel">
@@ -434,7 +300,7 @@ export function DashboardPage() {
 
       <CombinedWealthChart
         title="Accumulated wealth & 1y forecast"
-        historical={hasInvestAccounts ? data.wealth_with_invest_series : data.wealth_no_invest_series}
+        historical={data.wealth_series}
         forecast={data.wealth_projection}
         forecastNoInvest={data.wealth_projection_no_invest}
         color={themeColor("--accent-2")}
