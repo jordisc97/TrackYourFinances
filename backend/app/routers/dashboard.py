@@ -10,10 +10,12 @@ from app.schemas import (
     InvestmentRealOut,
     MonthlyStrategyIn,
     MonthlyStrategyOut,
+    OpeningWealthIn,
+    OpeningWealthOut,
     YearlyObjectiveIn,
     YearlyObjectiveOut,
 )
-from app.services.dashboard import build_dashboard, get_or_create_strategy, set_investment_real, set_yearly_objective, strategy_out
+from app.services.dashboard import build_dashboard, get_or_create_strategy, set_investment_real, set_opening_wealth, set_yearly_objective, strategy_out
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -65,3 +67,14 @@ def update_yearly_objective(
 ) -> YearlyObjectiveOut:
     row = set_yearly_objective(db, user.household_id, year, payload.target_net_worth)
     return YearlyObjectiveOut(year=row.year, target_net_worth=row.target_net_worth, forecast_year_end=None, actual_net_worth=None)
+
+
+@router.put("/opening-wealth", response_model=OpeningWealthOut)
+def update_opening_wealth(
+    payload: OpeningWealthIn,
+    year: int,
+    month: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> OpeningWealthOut:
+    return set_opening_wealth(db, user.household_id, year, month, payload.net_worth)

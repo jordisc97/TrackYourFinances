@@ -5,7 +5,7 @@ from datetime import date
 from sqlalchemy.orm import Session, joinedload
 
 from app.config import get_settings
-from app.models import Account, AccountType, BalanceSnapshot, Household, MonthlyInvestmentReal, MonthlyStrategy, Transaction, TransactionSplit, YearlyWealthObjective
+from app.models import Account, AccountType, BalanceSnapshot, Household, MonthlyInvestmentReal, MonthlyStrategy, MonthlyWealthBase, Transaction, TransactionSplit, YearlyWealthObjective
 from app.schemas import (
     AccountOut,
     CategorySpendOut,
@@ -15,6 +15,7 @@ from app.schemas import (
     MonthNavRowOut,
     MonthlyStrategyOut,
     MonthlySummaryOut,
+    OpeningWealthOut,
     YearlyObjectiveOut,
 )
 from app.services.benchmarks import get_or_refresh_benchmarks
@@ -520,6 +521,38 @@ def iter_months(start: tuple[int, int], end: tuple[int, int]):
             y += 1
 
 
+def wealth_base_for(db: Session, household_id: int, year: int, month: int) -> float | None:
+    row = (
+        db.query(MonthlyWealthBase)
+        .filter(MonthlyWealthBase.household_id == household_id, MonthlyWealthBase.year == year, MonthlyWealthBase.month == month)
+        .first()
+    )
+    return None if row is None else float(row.net_worth)
+
+
+def get_or_create_wealth_base(db: Session, household_id: int, year: int, month: int) -> MonthlyWealthBase:
+    row = (
+        db.query(MonthlyWealthBase)
+        .filter(MonthlyWealthBase.household_id == household_id, MonthlyWealthBase.year == year, MonthlyWealthBase.month == month)
+        .first()
+    )
+    if row is not None:
+        return row
+    row = MonthlyWealthBase(household_id=household_id, year=year, month=month, net_worth=0.0)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def set_opening_wealth(db: Session, household_id: int, year: int, month: int, net_worth: float) -> OpeningWealthOut:
+    row = get_or_create_wealth_base(db, household_id, year, month)
+    row.net_worth = net_worth
+    db.commit()
+    db.refresh(row)
+    return OpeningWealthOut(year=row.year, month=row.month, net_worth=row.net_worth)
+
+
 def build_month_rows(db: Session, household_id: int, all_txs: list[Transaction] | None = None) -> list[MonthNavRowOut]:
     txs = all_txs if all_txs is not None else household_transactions(db, household_id)
     if not txs:
@@ -529,14 +562,19 @@ def build_month_rows(db: Session, household_id: int, all_txs: list[Transaction] 
         by_month[(tx.booked_at.year, tx.booked_at.month)].append(tx)
     start = min(by_month)
     end = max(by_month)
+    opening = wealth_base_for(db, household_id, start[0], start[1])
     rows = []
     prev_wealth = None
     for y, m in iter_months(start, end):
         month_txs = by_month.get((y, m), [])
         wage, real_spend, invest_out, save_amount, save_pct, month_surplus = month_table_flow(month_txs)
-        wealth = round(month_surplus if prev_wealth is None else prev_wealth + month_surplus, 2)
+        is_opening = prev_wealth is None
+        if is_opening and opening is not None:
+            wealth = round(opening, 2)
+        else:
+            wealth = round(month_surplus if prev_wealth is None else prev_wealth + month_surplus, 2)
         delta = round(((wealth - prev_wealth) / abs(prev_wealth) * 100), 2) if prev_wealth else None
-        rows.append(MonthNavRowOut(year=y, month=m, label=month_label(y, m), income=wage, real_spend=real_spend, save_pct=save_pct, net_worth=wealth, net_worth_delta_pct=delta))
+        rows.append(MonthNavRowOut(year=y, month=m, label=month_label(y, m), income=wage, real_spend=real_spend, save_pct=save_pct, net_worth=wealth, net_worth_delta_pct=delta, is_opening=is_opening))
         prev_wealth = wealth
     return rows
 

@@ -186,10 +186,21 @@ function InvestmentLedger({ rows, onSaveReal }: { rows: InvestmentMonthRow[]; on
   );
 }
 
-function MonthTable({ rows, year, month, onSelect }: { rows: MonthNavRow[]; year: number; month: number; onSelect: (y: number, m: number) => void }) {
+function MonthTable({ rows, year, month, onSelect, onSaveOpeningWealth }: {
+  rows: MonthNavRow[]; year: number; month: number;
+  onSelect: (y: number, m: number) => void;
+  onSaveOpeningWealth: (y: number, m: number, netWorth: number) => Promise<void>;
+}) {
+  const opening = rows.find((row) => row.is_opening) ?? rows[0];
+  const [draft, setDraft] = useState(opening ? String(opening.net_worth) : "");
+  useEffect(() => {
+    const row = rows.find((r) => r.is_opening) ?? rows[0];
+    setDraft(row ? String(row.net_worth) : "");
+  }, [rows]);
   return (
     <div className="panel month-table-panel">
       <h2>Month over month</h2>
+      <p className="muted month-table-hint">Edit wealth on the first month to set a starting balance; later months = previous + wage − spend.</p>
       <div className="month-table-scroll">
         <table className="month-nav-table">
           <thead>
@@ -206,13 +217,34 @@ function MonthTable({ rows, year, month, onSelect }: { rows: MonthNavRow[]; year
             {rows.map((row) => {
               const active = row.year === year && row.month === month;
               const saveTone = row.save_pct >= 40 ? "good" : row.save_pct >= 20 ? "mid" : "low";
+              const isOpening = Boolean(row.is_opening);
               return (
                 <tr key={`${row.year}-${row.month}`} className={`${active ? "is-active" : ""} save-${saveTone}`} onClick={() => onSelect(row.year, row.month)}>
                   <td>{row.label}</td>
                   <td>{euro.format(row.income ?? 0)}</td>
                   <td className="amount-neg">{euro.format(row.real_spend)}</td>
                   <td>{whole.format(Math.round(row.save_pct))}%</td>
-                  <td>{euro.format(row.net_worth)}</td>
+                  <td onClick={(e) => { if (isOpening) e.stopPropagation(); }}>
+                    {isOpening ? (
+                      <input
+                        type="number"
+                        step="0.01"
+                        className="cell-input month-wealth-input"
+                        value={draft}
+                        onChange={(e) => setDraft(e.target.value)}
+                        onBlur={() => {
+                          if (draft === "" || draft == null) return;
+                          const next = Number(draft);
+                          if (next === row.net_worth) return;
+                          void onSaveOpeningWealth(row.year, row.month, next);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key !== "Enter") return;
+                          (e.target as HTMLInputElement).blur();
+                        }}
+                      />
+                    ) : euro.format(row.net_worth)}
+                  </td>
                   <td>{row.net_worth_delta_pct == null ? "—" : `${whole.format(Math.round(row.net_worth_delta_pct))}%`}</td>
                 </tr>
               );
@@ -301,6 +333,12 @@ export function DashboardPage() {
     await load(year, month);
   }
 
+  async function saveOpeningWealth(rowYear: number, rowMonth: number, netWorth: number) {
+    await api.updateOpeningWealth(rowYear, rowMonth, netWorth);
+    setMessage("Opening wealth saved");
+    await load(year, month);
+  }
+
   async function selectCategory(entry: CategorySpend) {
     if (!year || !month) return;
     if (selectedCategory?.category_name === entry.category_name) {
@@ -324,7 +362,13 @@ export function DashboardPage() {
 
   return (
     <div className="dash-stack">
-      <MonthTable rows={data.month_rows} year={year} month={month} onSelect={(y, mo) => changePeriod(y, mo).catch((err: Error) => setMessage(err.message))} />
+      <MonthTable
+        rows={data.month_rows}
+        year={year}
+        month={month}
+        onSelect={(y, mo) => changePeriod(y, mo).catch((err: Error) => setMessage(err.message))}
+        onSaveOpeningWealth={(y, mo, nw) => saveOpeningWealth(y, mo, nw).catch((err: Error) => setMessage(err.message))}
+      />
       {message && <p className="muted">{message}</p>}
 
       <div className="grid stats">

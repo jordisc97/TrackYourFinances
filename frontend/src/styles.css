@@ -91,7 +91,9 @@ select option, select optgroup {
 
 .month-table-panel { padding: 0.65rem 0.75rem; }
 .month-table-panel h2 { margin: 0 0 0.5rem; font-size: 1rem; }
+.month-table-hint { margin: -0.15rem 0 0.55rem; font-size: 0.8rem; line-height: 1.35; }
 .month-table-scroll { overflow: auto; max-height: 220px; }
+.month-wealth-input { min-width: 6rem; max-width: 8rem; }
 .month-nav-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
 .month-nav-table th, .month-nav-table td {
   text-align: right;

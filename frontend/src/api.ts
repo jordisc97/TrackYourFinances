@@ -22,6 +22,7 @@ export type YearlyObjective = {
 export type MonthNavRow = {
   year: number; month: number; label: string; income: number; real_spend: number;
   save_pct: number; net_worth: number; net_worth_delta_pct: number | null;
+  is_opening?: boolean;
 };
 export type MonthlySummary = {
   year: number; month: number; income: number; real_spend: number; save_amount: number; save_pct: number;
@@ -124,6 +125,8 @@ export const api = {
     request<{ year: number; month: number; real_value: number | null }>(`/api/dashboard/investment-real?year=${year}&month=${month}`, { method: "PUT", body: JSON.stringify({ real_value }) }),
   updateYearlyObjective: (year: number, target_net_worth: number) =>
     request<YearlyObjective>(`/api/dashboard/yearly-objective?year=${year}`, { method: "PUT", body: JSON.stringify({ target_net_worth }) }),
+  updateOpeningWealth: (year: number, month: number, net_worth: number) =>
+    request<{ year: number; month: number; net_worth: number }>(`/api/dashboard/opening-wealth?year=${year}&month=${month}`, { method: "PUT", body: JSON.stringify({ net_worth }) }),
   accounts: () => request<Account[]>("/api/accounts"),
   createAccount: (body: object) => request<Account>("/api/accounts", { method: "POST", body: JSON.stringify(body) }),
   addBalance: (accountId: number, amount: number, snapshot_date?: string) =>
