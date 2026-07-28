@@ -90,6 +90,7 @@ select option, select optgroup {
 .dash-stack .grid.charts { margin: 0; }
 
 .month-table-panel { padding: 0.65rem 0.75rem; }
+.month-table-panel h2 { margin: 0 0 0.5rem; font-size: 1rem; }
 .month-table-scroll { overflow: auto; max-height: 220px; }
 .month-nav-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
 .month-nav-table th, .month-nav-table td {
@@ -383,6 +384,7 @@ select option, select optgroup {
 .table th { color: var(--muted); font-weight: 500; font-size: 0.85rem; }
 .amount-pos { color: var(--save); }
 .amount-neg { color: var(--spend); }
+.amount-neutral { color: var(--accent); }
 
 .form { display: grid; gap: 0.75rem; max-width: 420px; }
 .form.wide { max-width: none; }
@@ -413,6 +415,8 @@ select option, select optgroup {
 .split { display: grid; gap: 0.65rem; margin-top: 0.75rem; }
 .split-row { display: grid; grid-template-columns: minmax(90px, 1fr) 110px minmax(120px, 1.2fr); gap: 0.6rem; align-items: center; }
 .split-editor h2 { margin: 0; }
+.split-editor-row td { padding: 0.35rem 0.5rem 0.75rem; border-bottom: 1px solid var(--line); background: var(--hover); }
+.split-editor-inline { margin: 0; padding: 0.85rem 1rem; box-shadow: var(--shadow); border: 1px solid var(--line); }
 .split-portion-row td { padding-top: 0.2rem; padding-bottom: 0.35rem; border-bottom-color: transparent; font-size: 0.92rem; }
 
 @keyframes rise {

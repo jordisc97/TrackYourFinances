@@ -18,6 +18,7 @@ from app.schemas import (
     TransactionSplitOut,
 )
 from app.services.classification import classify_uncategorized, remember_commerce, rematch_positive_inflows, register_employer_rules
+from app.services.dashboard import is_spend_outflow
 from app.services.splits import clear_splits, replace_splits, signed_portion_amount, validate_portions
 
 router = APIRouter(prefix="/api", tags=["transactions"])
@@ -30,6 +31,7 @@ def _split_out(split: TransactionSplit) -> TransactionSplitOut:
         label=split.label,
         category_id=split.category_id,
         category_name=split.category.name if split.category else None,
+        category_kind=split.category.kind if split.category else None,
         sort_order=split.sort_order,
     )
 
@@ -47,6 +49,7 @@ def _tx_out(tx: Transaction) -> TransactionOut:
         merchant=tx.merchant,
         source=tx.source,
         category_name=tx.category.name if tx.category else None,
+        category_kind=tx.category.kind if tx.category else None,
         splits=splits,
     )
 
@@ -87,6 +90,8 @@ def list_transactions(
         needle = f"%{q.strip()}%"
         query = query.filter((Transaction.merchant.ilike(needle)) | (Transaction.raw_description.ilike(needle)))
     txs = query.order_by(Transaction.booked_at.desc()).limit(limit).all()
+    if expenses_only:
+        txs = [tx for tx in txs if is_spend_outflow(tx)]
     if category_id is not None:
         txs = [
             tx for tx in txs

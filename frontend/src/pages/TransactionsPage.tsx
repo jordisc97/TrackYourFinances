@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, type Account, type Category, type Transaction } from "../api";
-import { euro, parseEmployerNames } from "../format";
+import { amountClass, amountTone, euro, ledgerAmountTone, ledgerDisplayAmount, parseEmployerNames, portionKind } from "../format";
 
 const ACCOUNT_UNSET = "" as const;
 const IMPORT_PHASE_IDLE = "idle";
@@ -149,6 +149,9 @@ export function TransactionsPage() {
   function openSplit(tx: Transaction) {
     setSplittingId(tx.id);
     setSplitDrafts(defaultDrafts(tx));
+    window.requestAnimationFrame(() => {
+      document.querySelector(`[data-split-anchor="${tx.id}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
   }
 
   function updateDraft(index: number, patch: Partial<SplitDraft>) {
@@ -332,37 +335,6 @@ export function TransactionsPage() {
         {message && <p className={`csv-status csv-status-${messageTone || "ok"}`}>{message}</p>}
       </div>
 
-      {splittingTx && (
-        <div className="panel split-editor" style={{ marginBottom: "1rem" }}>
-          <div className="row" style={{ marginBottom: "0.75rem" }}>
-            <div style={{ flex: 2 }}>
-              <h2 style={{ marginBottom: "0.25rem" }}>Split bill</h2>
-              <p className="muted">{splittingTx.merchant || splittingTx.raw_description || "Transaction"} · {euro.format(splittingTx.amount)}</p>
-            </div>
-            <button type="button" className="secondary" disabled={splitBusy} onClick={() => { setSplittingId(null); setSplitDrafts([]); }}>Cancel</button>
-          </div>
-          <div className="split">
-            {splitDrafts.map((row, index) => (
-              <div className="split-row" key={index}>
-                <input value={row.label} onChange={(e) => updateDraft(index, { label: e.target.value })} placeholder="Label" disabled={splitBusy} />
-                <input type="number" min={0} step="0.01" value={row.amount} onChange={(e) => updateDraft(index, { amount: e.target.value })} placeholder="Amount" disabled={splitBusy} />
-                <select value={row.category_id} onChange={(e) => updateDraft(index, { category_id: e.target.value ? Number(e.target.value) : "" })} disabled={splitBusy}>
-                  <option value="">Same category</option>
-                  {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-              </div>
-            ))}
-          </div>
-          <div className="row" style={{ marginTop: "0.85rem", alignItems: "center" }}>
-            <p className={`muted${splitBalanced ? "" : " csv-status-error"}`} style={{ flex: 2, margin: 0 }}>
-              Portions {euro.format(draftTotal)} / {euro.format(splitTarget)}{splitBalanced ? "" : " — must match total"}
-            </p>
-            <button type="button" className="secondary" disabled={splitBusy} onClick={() => setSplitDrafts((rows) => [...rows, { label: "Share", amount: "0", category_id: splittingTx.category_id ?? "" }])}>Add portion</button>
-            <button type="button" disabled={splitBusy || !splitBalanced || splitDrafts.length < 2} onClick={() => saveSplit().catch((err: Error) => { setSplitBusy(false); setMessageTone("error"); setMessage(err.message); })}>{splitBusy ? "Saving…" : "Save split"}</button>
-          </div>
-        </div>
-      )}
-
       <div className={`panel ledger-panel${busy ? " is-busy" : ""}`}>
         <div className="row" style={{ marginBottom: "0.75rem" }}>
           <h2 style={{ flex: 2 }}>Ledger</h2>
@@ -383,7 +355,25 @@ export function TransactionsPage() {
             <thead><tr><th>Date</th><th>Description</th><th>Amount</th><th>Category</th><th>Assign</th><th>Split</th></tr></thead>
             <tbody>
               {transactions.map((tx) => (
-                <FragmentRow key={tx.id} tx={tx} categories={categories} busy={busy || splitBusy} onAssign={assign} onOpenSplit={openSplit} onClearSplit={clearSplit} onError={(err) => { setMessageTone("error"); setMessage(err); }} />
+                <FragmentRow
+                  key={tx.id}
+                  tx={tx}
+                  categories={categories}
+                  busy={busy || splitBusy}
+                  splitting={splittingId === tx.id}
+                  splitDrafts={splittingId === tx.id ? splitDrafts : []}
+                  splitBalanced={splitBalanced}
+                  draftTotal={draftTotal}
+                  splitTarget={splitTarget}
+                  onAssign={assign}
+                  onOpenSplit={openSplit}
+                  onClearSplit={clearSplit}
+                  onCancelSplit={() => { setSplittingId(null); setSplitDrafts([]); }}
+                  onUpdateDraft={updateDraft}
+                  onAddPortion={() => setSplitDrafts((rows) => [...rows, { label: "Share", amount: "0", category_id: tx.category_id ?? "" }])}
+                  onSaveSplit={() => saveSplit().catch((err: Error) => { setSplitBusy(false); setMessageTone("error"); setMessage(err.message); })}
+                  onError={(err) => { setMessageTone("error"); setMessage(err); }}
+                />
               ))}
             </tbody>
           </table>
@@ -406,25 +396,35 @@ export function TransactionsPage() {
 }
 
 function FragmentRow({
-  tx, categories, busy, onAssign, onOpenSplit, onClearSplit, onError,
+  tx, categories, busy, splitting, splitDrafts, splitBalanced, draftTotal, splitTarget,
+  onAssign, onOpenSplit, onClearSplit, onCancelSplit, onUpdateDraft, onAddPortion, onSaveSplit, onError,
 }: {
   tx: Transaction;
   categories: Category[];
   busy: boolean;
+  splitting: boolean;
+  splitDrafts: SplitDraft[];
+  splitBalanced: boolean;
+  draftTotal: number;
+  splitTarget: number;
   onAssign: (txId: number, categoryId: number) => Promise<void>;
   onOpenSplit: (tx: Transaction) => void;
   onClearSplit: (txId: number) => Promise<void>;
+  onCancelSplit: () => void;
+  onUpdateDraft: (index: number, patch: Partial<SplitDraft>) => void;
+  onAddPortion: () => void;
+  onSaveSplit: () => void;
   onError: (message: string) => void;
 }) {
   return (
     <>
-      <tr>
+      <tr data-split-anchor={tx.id}>
         <td>{tx.booked_at}</td>
         <td>
           {tx.merchant || tx.raw_description || "—"}
-          {tx.splits && tx.splits.length > 0 && <span className="pill" style={{ marginLeft: "0.4rem" }}>Split</span>}
+          {tx.splits && tx.splits.length > 0 && !splitting && <span className="pill" style={{ marginLeft: "0.4rem" }}>Split</span>}
         </td>
-        <td className={tx.amount >= 0 ? "amount-pos" : "amount-neg"}>{euro.format(tx.amount)}</td>
+        <td className={amountClass(ledgerAmountTone(tx))}>{euro.format(ledgerDisplayAmount(tx))}</td>
         <td>{tx.category_name || <span className="pill warn">Uncategorized</span>}</td>
         <td>
           <select defaultValue="" disabled={busy} onChange={(e) => { const value = Number(e.target.value); if (value) onAssign(tx.id, value).catch((err: Error) => onError(err.message)); }}>
@@ -434,18 +434,52 @@ function FragmentRow({
         </td>
         <td>
           <div className="row" style={{ gap: "0.35rem", minWidth: "7rem" }}>
-            <button type="button" className="secondary" disabled={busy || tx.amount === 0} onClick={() => onOpenSplit(tx)}>Split</button>
-            {tx.splits && tx.splits.length > 0 && (
+            <button type="button" className="secondary" disabled={busy || tx.amount === 0} onClick={() => onOpenSplit(tx)}>{splitting ? "Editing…" : "Split"}</button>
+            {tx.splits && tx.splits.length > 0 && !splitting && (
               <button type="button" className="secondary" disabled={busy} onClick={() => onClearSplit(tx.id).catch((err: Error) => onError(err.message))}>Clear</button>
             )}
           </div>
         </td>
       </tr>
-      {tx.splits?.map((split) => (
+      {splitting && (
+        <tr className="split-editor-row">
+          <td colSpan={6}>
+            <div className="split-editor-inline panel">
+              <div className="row" style={{ marginBottom: "0.75rem" }}>
+                <div style={{ flex: 2 }}>
+                  <h2 style={{ marginBottom: "0.25rem" }}>Split bill</h2>
+                  <p className="muted">{tx.merchant || tx.raw_description || "Transaction"} · {euro.format(tx.amount)}</p>
+                </div>
+                <button type="button" className="secondary" disabled={busy} onClick={onCancelSplit}>Cancel</button>
+              </div>
+              <div className="split">
+                {splitDrafts.map((row, index) => (
+                  <div className="split-row" key={index}>
+                    <input value={row.label} onChange={(e) => onUpdateDraft(index, { label: e.target.value })} placeholder="Label" disabled={busy} />
+                    <input type="number" min={0} step="0.01" value={row.amount} onChange={(e) => onUpdateDraft(index, { amount: e.target.value })} placeholder="Amount" disabled={busy} />
+                    <select value={row.category_id} onChange={(e) => onUpdateDraft(index, { category_id: e.target.value ? Number(e.target.value) : "" })} disabled={busy}>
+                      <option value="">Same category</option>
+                      {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
+                ))}
+              </div>
+              <div className="row" style={{ marginTop: "0.85rem", alignItems: "center" }}>
+                <p className={`muted${splitBalanced ? "" : " csv-status-error"}`} style={{ flex: 2, margin: 0 }}>
+                  Portions {euro.format(draftTotal)} / {euro.format(splitTarget)}{splitBalanced ? "" : " — must match total"}
+                </p>
+                <button type="button" className="secondary" disabled={busy} onClick={onAddPortion}>Add portion</button>
+                <button type="button" disabled={busy || !splitBalanced || splitDrafts.length < 2} onClick={onSaveSplit}>{busy ? "Saving…" : "Save split"}</button>
+              </div>
+            </div>
+          </td>
+        </tr>
+      )}
+      {!splitting && tx.splits?.map((split) => (
         <tr key={`${tx.id}-${split.id}`} className="split-portion-row">
           <td />
           <td className="muted">↳ {split.label}</td>
-          <td className={split.amount >= 0 ? "amount-pos" : "amount-neg"}>{euro.format(split.amount)}</td>
+          <td className={amountClass(amountTone(split.amount, portionKind(split, tx)))}>{euro.format(split.amount)}</td>
           <td className="muted">{split.category_name || tx.category_name || "—"}</td>
           <td colSpan={2} />
         </tr>

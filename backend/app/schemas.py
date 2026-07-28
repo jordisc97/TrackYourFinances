@@ -96,6 +96,7 @@ class TransactionSplitOut(BaseModel):
     label: str
     category_id: int | None
     category_name: str | None = None
+    category_kind: str | None = None
     sort_order: int = 0
     model_config = {"from_attributes": True}
 
@@ -111,6 +112,7 @@ class TransactionOut(BaseModel):
     merchant: str
     source: str
     category_name: str | None = None
+    category_kind: str | None = None
     splits: list[TransactionSplitOut] = Field(default_factory=list)
     model_config = {"from_attributes": True}
 

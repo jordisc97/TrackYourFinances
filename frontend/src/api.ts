@@ -2,10 +2,10 @@ export type User = { id: number; email: string; display_name: string; role: stri
 export type Household = { id: number; name: string; invite_code: string; location?: string };
 export type Account = { id: number; name: string; institution: string; currency: string; account_type: string; source: string; is_active: boolean; latest_balance: number | null };
 export type Category = { id: number; name: string; kind: string; color: string };
-export type TransactionSplit = { id: number; amount: number; label: string; category_id: number | null; category_name: string | null; sort_order: number };
+export type TransactionSplit = { id: number; amount: number; label: string; category_id: number | null; category_name: string | null; category_kind: string | null; sort_order: number };
 export type Transaction = {
   id: number; account_id: number; category_id: number | null; booked_at: string; amount: number; currency: string;
-  raw_description: string; merchant: string; source: string; category_name: string | null; splits?: TransactionSplit[];
+  raw_description: string; merchant: string; source: string; category_name: string | null; category_kind: string | null; splits?: TransactionSplit[];
 };
 export type Institution = { id: string; name: string; country: string; logo: string | null };
 export type BankConnection = { id: number; provider: string; institution_id: string; institution_name: string; status: string; consent_expires_at: string | null; last_synced_at: string | null };

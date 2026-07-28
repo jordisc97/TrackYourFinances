@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, type CategorySpend, type Dashboard, type MonthNavRow, type SeriesPoint, type Transaction } from "../api";
 import { AdvisorChat } from "../components/AdvisorChat";
-import { axisMoney, euro, signedEuro, whole } from "../format";
+import { amountClass, amountTone, axisMoney, euro, portionKind, signedEuro, whole } from "../format";
 
 const ACCOUNT_TYPE_INVESTMENT = "investment";
 const PCT_TOTAL_TARGET = 100;
@@ -63,6 +63,7 @@ function CombinedWealthChart({ title, historical, forecast, forecastNoInvest, co
 function MonthTable({ rows, year, month, onSelect }: { rows: MonthNavRow[]; year: number; month: number; onSelect: (y: number, m: number) => void }) {
   return (
     <div className="panel month-table-panel">
+      <h2>Month over month</h2>
       <div className="month-table-scroll">
         <table className="month-nav-table">
           <thead>
@@ -235,7 +236,7 @@ export function DashboardPage() {
         </div>
 
         <div className="panel cat-panel">
-          <h2>Spend by category</h2>
+          <h2>Spend by category · {monthLabel}</h2>
           <p className="muted cat-hint">
             You vs typical for {data.benchmark_location || "your region"}
             {data.benchmark_source === "llm" ? " (AI estimate)" : " (Eurostat-based)"}
@@ -331,7 +332,7 @@ export function DashboardPage() {
                     <tr key={`${tx.id}-${split.id}`}>
                       <td>{tx.booked_at}</td>
                       <td>{tx.merchant || tx.raw_description || "—"}{split.label ? ` · ${split.label}` : ""}</td>
-                      <td className="amount-neg">{euro.format(Math.abs(split.amount))}</td>
+                      <td className={amountClass(amountTone(split.amount, portionKind(split, tx)))}>{euro.format(Math.abs(split.amount))}</td>
                     </tr>
                   ));
                 }
@@ -339,7 +340,7 @@ export function DashboardPage() {
                   <tr key={tx.id}>
                     <td>{tx.booked_at}</td>
                     <td>{tx.merchant || tx.raw_description || "—"}</td>
-                    <td className="amount-neg">{euro.format(Math.abs(tx.amount))}</td>
+                    <td className={amountClass(amountTone(tx.amount, tx.category_kind))}>{euro.format(Math.abs(tx.amount))}</td>
                   </tr>
                 )];
               })}
