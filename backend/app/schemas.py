@@ -157,6 +157,39 @@ class MonthlyStrategyIn(BaseModel):
     invest_pct: float
 
 
+class InvestmentRealIn(BaseModel):
+    real_value: float | None = None
+
+
+class InvestmentRealOut(BaseModel):
+    year: int
+    month: int
+    real_value: float | None = None
+    model_config = {"from_attributes": True}
+
+
+class InvestmentMonthRowOut(BaseModel):
+    year: int
+    month: int
+    label: str
+    investment_amount: float
+    investment_pct: float
+    accum_value: float
+    real_value: float | None = None
+    cum_invest: float = 0.0
+
+
+class YearlyObjectiveIn(BaseModel):
+    target_net_worth: float
+
+
+class YearlyObjectiveOut(BaseModel):
+    year: int
+    target_net_worth: float | None = None
+    forecast_year_end: float | None = None
+    actual_net_worth: float | None = None
+
+
 class MonthNavRowOut(BaseModel):
     year: int
     month: int
@@ -227,6 +260,8 @@ class DashboardOut(BaseModel):
     invested_total: float = 0.0
     strategy: MonthlyStrategyOut
     month_rows: list[MonthNavRowOut]
+    investment_month_rows: list[InvestmentMonthRowOut] = Field(default_factory=list)
+    yearly_objectives: list[YearlyObjectiveOut] = Field(default_factory=list)
     wealth_series: list[dict]
     wealth_projection: list[dict]
     wealth_projection_no_invest: list[dict]

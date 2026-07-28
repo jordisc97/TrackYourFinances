@@ -616,6 +616,14 @@ select option, select optgroup {
   gap: 0.25rem;
 }
 .ledger-month-filter select { width: 100%; }
+.ledger-search-filter {
+  flex: 1 1 14rem;
+  min-width: 11rem;
+  max-width: 18rem;
+  display: grid;
+  gap: 0.25rem;
+}
+.ledger-search-filter input { width: 100%; }
 .ledger-panel {
   position: relative;
   overflow: hidden;

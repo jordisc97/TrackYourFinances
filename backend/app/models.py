@@ -50,6 +50,8 @@ class Household(Base):
     categories: Mapped[list["Category"]] = relationship(back_populates="household")
     bank_connections: Mapped[list["BankConnection"]] = relationship(back_populates="household")
     monthly_strategies: Mapped[list["MonthlyStrategy"]] = relationship(back_populates="household")
+    investment_reals: Mapped[list["MonthlyInvestmentReal"]] = relationship(back_populates="household")
+    yearly_objectives: Mapped[list["YearlyWealthObjective"]] = relationship(back_populates="household")
     spend_benchmark: Mapped["SpendBenchmark | None"] = relationship(back_populates="household", uselist=False)
 
 
@@ -186,6 +188,27 @@ class MonthlyStrategy(Base):
     save_pct: Mapped[float] = mapped_column(Float, default=25.0)
     invest_pct: Mapped[float] = mapped_column(Float, default=25.0)
     household: Mapped["Household"] = relationship(back_populates="monthly_strategies")
+
+
+class MonthlyInvestmentReal(Base):
+    __tablename__ = "monthly_investment_reals"
+    __table_args__ = (UniqueConstraint("household_id", "year", "month", name="uq_invest_real_household_month"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(ForeignKey("households.id"), nullable=False)
+    year: Mapped[int] = mapped_column(Integer, nullable=False)
+    month: Mapped[int] = mapped_column(Integer, nullable=False)
+    real_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    household: Mapped["Household"] = relationship(back_populates="investment_reals")
+
+
+class YearlyWealthObjective(Base):
+    __tablename__ = "yearly_wealth_objectives"
+    __table_args__ = (UniqueConstraint("household_id", "year", name="uq_yearly_objective_household_year"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(ForeignKey("households.id"), nullable=False)
+    year: Mapped[int] = mapped_column(Integer, nullable=False)
+    target_net_worth: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    household: Mapped["Household"] = relationship(back_populates="yearly_objectives")
 
 
 class SpendBenchmark(Base):

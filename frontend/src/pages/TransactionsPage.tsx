@@ -18,6 +18,11 @@ const LEDGER_MONTH_ALL = "all";
 const LEDGER_MONTH_LOOKBACK = 36;
 const LEDGER_MONTH_LOCALE = "en-US";
 const LEDGER_MONTH_ALL_LABEL = "All months";
+const LEDGER_SEARCH_DEBOUNCE_MS = 300;
+const LEDGER_SEARCH_LABEL = "Search";
+const LEDGER_SEARCH_PLACEHOLDER = "Merchant or description…";
+const SPLIT_MATCH_MESSAGE = "Nice math skills";
+const SPLIT_BALANCE_TOLERANCE = 0.02;
 
 type SplitDraft = { label: string; amount: string; category_id: number | "" };
 type LedgerMonthOption = { value: string; label: string };
@@ -68,6 +73,8 @@ export function TransactionsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [onlyUncategorized, setOnlyUncategorized] = useState(false);
   const [ledgerMonth, setLedgerMonth] = useState(currentLedgerMonthKey);
+  const [ledgerSearch, setLedgerSearch] = useState("");
+  const [ledgerSearchQuery, setLedgerSearchQuery] = useState("");
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"ok" | "error" | "">("");
   const [accountId, setAccountId] = useState<number | typeof ACCOUNT_UNSET>(ACCOUNT_UNSET);
@@ -90,11 +97,13 @@ export function TransactionsPage() {
   const splittingTx = transactions.find((tx) => tx.id === splittingId) ?? null;
   const draftTotal = splitDrafts.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
   const splitTarget = splittingTx ? Math.abs(splittingTx.amount) : 0;
-  const splitBalanced = Math.abs(draftTotal - splitTarget) < 0.02;
+  const splitBalanced = Math.abs(draftTotal - splitTarget) < SPLIT_BALANCE_TOLERANCE;
+  const splitRemaining = Math.round((splitTarget - draftTotal) * 100) / 100;
 
   async function load() {
-    const txQuery: { uncategorized?: boolean; year?: number; month?: number } = { uncategorized: onlyUncategorized };
-    if (ledgerMonth !== LEDGER_MONTH_ALL) {
+    const txQuery: { uncategorized?: boolean; year?: number; month?: number; q?: string } = { uncategorized: onlyUncategorized };
+    if (ledgerSearchQuery) txQuery.q = ledgerSearchQuery;
+    else if (ledgerMonth !== LEDGER_MONTH_ALL) {
       const [year, month] = ledgerMonth.split("-").map(Number);
       txQuery.year = year;
       txQuery.month = month;
@@ -128,8 +137,14 @@ export function TransactionsPage() {
   }
 
   useEffect(() => {
+    const trimmed = ledgerSearch.trim();
+    const timerId = window.setTimeout(() => setLedgerSearchQuery(trimmed), LEDGER_SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timerId);
+  }, [ledgerSearch]);
+
+  useEffect(() => {
     load().catch((err: Error) => { setMessageTone("error"); setMessage(err.message); });
-  }, [onlyUncategorized, ledgerMonth]);
+  }, [onlyUncategorized, ledgerMonth, ledgerSearchQuery]);
 
   useEffect(() => {
     if (!busy) {
@@ -344,6 +359,10 @@ export function TransactionsPage() {
               {LEDGER_MONTH_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </label>
+          <label className="ledger-search-filter">
+            <span className="muted">{LEDGER_SEARCH_LABEL}</span>
+            <input type="search" value={ledgerSearch} onChange={(e) => setLedgerSearch(e.target.value)} placeholder={LEDGER_SEARCH_PLACEHOLDER} disabled={busy} />
+          </label>
           <label style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
             <input type="checkbox" checked={onlyUncategorized} onChange={(e) => setOnlyUncategorized(e.target.checked)} disabled={busy} />
             Uncategorized inbox
@@ -365,6 +384,7 @@ export function TransactionsPage() {
                   splitBalanced={splitBalanced}
                   draftTotal={draftTotal}
                   splitTarget={splitTarget}
+                  splitRemaining={splitRemaining}
                   onAssign={assign}
                   onOpenSplit={openSplit}
                   onClearSplit={clearSplit}
@@ -396,7 +416,7 @@ export function TransactionsPage() {
 }
 
 function FragmentRow({
-  tx, categories, busy, splitting, splitDrafts, splitBalanced, draftTotal, splitTarget,
+  tx, categories, busy, splitting, splitDrafts, splitBalanced, draftTotal, splitTarget, splitRemaining,
   onAssign, onOpenSplit, onClearSplit, onCancelSplit, onUpdateDraft, onAddPortion, onSaveSplit, onError,
 }: {
   tx: Transaction;
@@ -407,6 +427,7 @@ function FragmentRow({
   splitBalanced: boolean;
   draftTotal: number;
   splitTarget: number;
+  splitRemaining: number;
   onAssign: (txId: number, categoryId: number) => Promise<void>;
   onOpenSplit: (tx: Transaction) => void;
   onClearSplit: (txId: number) => Promise<void>;
@@ -465,8 +486,10 @@ function FragmentRow({
                 ))}
               </div>
               <div className="row" style={{ marginTop: "0.85rem", alignItems: "center" }}>
-                <p className={`muted${splitBalanced ? "" : " csv-status-error"}`} style={{ flex: 2, margin: 0 }}>
-                  Portions {euro.format(draftTotal)} / {euro.format(splitTarget)}{splitBalanced ? "" : " — must match total"}
+                <p className={splitBalanced ? "csv-status-ok" : "csv-status-error"} style={{ flex: 2, margin: 0, background: "transparent", padding: 0 }}>
+                  {splitBalanced
+                    ? `Portions ${euro.format(draftTotal)} / ${euro.format(splitTarget)} — ${SPLIT_MATCH_MESSAGE}`
+                    : `Portions ${euro.format(draftTotal)} / ${euro.format(splitTarget)} — ${euro.format(Math.abs(splitRemaining))} ${splitRemaining > 0 ? "remaining" : "over"}`}
                 </p>
                 <button type="button" className="secondary" disabled={busy} onClick={onAddPortion}>Add portion</button>
                 <button type="button" disabled={busy || !splitBalanced || splitDrafts.length < 2} onClick={onSaveSplit}>{busy ? "Saving…" : "Save split"}</button>

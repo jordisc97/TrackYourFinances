@@ -5,14 +5,17 @@ from datetime import date
 from sqlalchemy.orm import Session, joinedload
 
 from app.config import get_settings
-from app.models import Account, AccountType, BalanceSnapshot, Household, MonthlyStrategy, Transaction, TransactionSplit
+from app.models import Account, AccountType, BalanceSnapshot, Household, MonthlyInvestmentReal, MonthlyStrategy, Transaction, TransactionSplit, YearlyWealthObjective
 from app.schemas import (
     AccountOut,
     CategorySpendOut,
     DashboardOut,
+    InvestmentMonthRowOut,
+    InvestmentRealOut,
     MonthNavRowOut,
     MonthlyStrategyOut,
     MonthlySummaryOut,
+    YearlyObjectiveOut,
 )
 from app.services.benchmarks import get_or_refresh_benchmarks
 
@@ -280,6 +283,149 @@ def get_or_create_strategy(db: Session, household_id: int, year: int, month: int
     db.refresh(row)
     return row
 
+
+def investment_real_map(db: Session, household_id: int) -> dict[tuple[int, int], float | None]:
+    rows = db.query(MonthlyInvestmentReal).filter(MonthlyInvestmentReal.household_id == household_id).all()
+    return {(row.year, row.month): row.real_value for row in rows}
+
+
+def get_or_create_investment_real(db: Session, household_id: int, year: int, month: int) -> MonthlyInvestmentReal:
+    row = (
+        db.query(MonthlyInvestmentReal)
+        .filter(MonthlyInvestmentReal.household_id == household_id, MonthlyInvestmentReal.year == year, MonthlyInvestmentReal.month == month)
+        .first()
+    )
+    if row is not None:
+        return row
+    row = MonthlyInvestmentReal(household_id=household_id, year=year, month=month, real_value=None)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def set_investment_real(db: Session, household_id: int, year: int, month: int, real_value: float | None) -> InvestmentRealOut:
+    row = get_or_create_investment_real(db, household_id, year, month)
+    row.real_value = real_value
+    db.commit()
+    db.refresh(row)
+    return InvestmentRealOut(year=row.year, month=row.month, real_value=row.real_value)
+
+
+def yearly_objective_map(db: Session, household_id: int) -> dict[int, float]:
+    rows = db.query(YearlyWealthObjective).filter(YearlyWealthObjective.household_id == household_id).all()
+    return {row.year: row.target_net_worth for row in rows}
+
+
+def get_or_create_yearly_objective(db: Session, household_id: int, year: int) -> YearlyWealthObjective:
+    row = db.query(YearlyWealthObjective).filter(YearlyWealthObjective.household_id == household_id, YearlyWealthObjective.year == year).first()
+    if row is not None:
+        return row
+    row = YearlyWealthObjective(household_id=household_id, year=year, target_net_worth=0.0)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def set_yearly_objective(db: Session, household_id: int, year: int, target_net_worth: float) -> YearlyWealthObjective:
+    row = get_or_create_yearly_objective(db, household_id, year)
+    row.target_net_worth = target_net_worth
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def monthly_sp500_rate() -> float:
+    return (1 + SP500_ANNUAL_RETURN) ** (1 / 12) - 1
+
+
+def build_investment_month_rows(
+    db: Session,
+    household_id: int,
+    month_rows: list[MonthNavRowOut],
+    all_txs: list[Transaction] | None = None,
+) -> list[InvestmentMonthRowOut]:
+    txs = all_txs if all_txs is not None else household_transactions(db, household_id)
+    by_month: dict[tuple[int, int], list[Transaction]] = defaultdict(list)
+    for tx in txs:
+        by_month[(tx.booked_at.year, tx.booked_at.month)].append(tx)
+    reals = investment_real_map(db, household_id)
+    rate = monthly_sp500_rate()
+    accum = 0.0
+    cum_invest = 0.0
+    rows: list[InvestmentMonthRowOut] = []
+    for nav in month_rows:
+        month_txs = by_month.get((nav.year, nav.month), [])
+        _, _, invest_out, _, _, _ = month_table_flow(month_txs)
+        wage = nav.income
+        invest_pct = round((invest_out / wage * 100), 1) if wage else 0.0
+        accum = round(accum * (1 + rate) + invest_out, 2)
+        cum_invest = round(cum_invest + invest_out, 2)
+        rows.append(
+            InvestmentMonthRowOut(
+                year=nav.year,
+                month=nav.month,
+                label=f"{nav.year}-{nav.month:02d}",
+                investment_amount=invest_out,
+                investment_pct=invest_pct,
+                accum_value=accum,
+                real_value=reals.get((nav.year, nav.month)),
+                cum_invest=cum_invest,
+            )
+        )
+    return rows
+
+
+def adjusted_net_worth(cashflow_wealth: float, cum_invest: float, real_value: float | None) -> float:
+    if real_value is None:
+        return round(cashflow_wealth, 2)
+    return round(cashflow_wealth - cum_invest + real_value, 2)
+
+
+def investment_row_lookup(rows: list[InvestmentMonthRowOut], year: int, month: int) -> InvestmentMonthRowOut | None:
+    return next((row for row in rows if row.year == year and row.month == month), None)
+
+
+def month_rows_wealth_series_adjusted(
+    month_rows: list[MonthNavRowOut],
+    invest_rows: list[InvestmentMonthRowOut],
+    through_year: int,
+    through_month: int,
+    months: int = 12,
+) -> list[dict]:
+    by_key = {(row.year, row.month): row for row in month_rows}
+    invest_by_key = {(row.year, row.month): row for row in invest_rows}
+    points = []
+    for label, _ in _month_ends(through_year, through_month, months):
+        y, m = int(label[:4]), int(label[5:7])
+        row = by_key.get((y, m))
+        invest = invest_by_key.get((y, m))
+        if row is None:
+            points.append({"label": label, "value": 0.0})
+            continue
+        cum = invest.cum_invest if invest is not None else 0.0
+        real = invest.real_value if invest is not None else None
+        points.append({"label": label, "value": adjusted_net_worth(row.net_worth, cum, real)})
+    while len(points) > 2 and points[0]["value"] == 0:
+        points.pop(0)
+    return points
+
+
+def seed_invested_from_rows(invest_rows: list[InvestmentMonthRowOut], through_year: int, through_month: int) -> float:
+    latest_real = None
+    latest_accum = 0.0
+    for row in invest_rows:
+        if (row.year, row.month) > (through_year, through_month):
+            break
+        latest_accum = row.accum_value
+        if row.real_value is not None:
+            latest_real = row.real_value
+    return round(latest_real if latest_real is not None else latest_accum, 2)
+
+
+def months_until(from_year: int, from_month: int, to_year: int, to_month: int) -> int:
+    return (to_year - from_year) * 12 + (to_month - from_month)
 
 def build_monthly_summary(db: Session, household_id: int, year: int, month: int, txs: list[Transaction] | None = None, strategy: MonthlyStrategy | None = None, month_rows: list[MonthNavRowOut] | None = None) -> MonthlySummaryOut:
     strategy = strategy or get_or_create_strategy(db, household_id, year, month)
