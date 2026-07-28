@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { api, type CategorySpend, type Dashboard, type MonthNavRow, type SeriesPoint, type Transaction } from "../api";
+import { api, type CategorySpend, type Dashboard, type InvestmentMonthRow, type MonthNavRow, type SeriesPoint, type Transaction, type YearlyObjective } from "../api";
 import { AdvisorChat } from "../components/AdvisorChat";
 import { amountClass, amountTone, axisMoney, euro, portionKind, signedEuro, whole } from "../format";
 
@@ -23,7 +23,11 @@ function formatAxisDate(ms: number) {
   return new Date(ms).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
 }
 
-function CombinedWealthChart({ title, historical, forecast, forecastNoInvest, color, forecastColor, note }: { title: string; historical: SeriesPoint[]; forecast: SeriesPoint[]; forecastNoInvest: SeriesPoint[]; color: string; forecastColor: string; note?: string }) {
+function CombinedWealthPanel({ title, historical, forecast, forecastNoInvest, color, forecastColor, note, objectives, onSaveTarget }: {
+  title: string; historical: SeriesPoint[]; forecast: SeriesPoint[]; forecastNoInvest: SeriesPoint[];
+  color: string; forecastColor: string; note?: string; objectives: YearlyObjective[];
+  onSaveTarget: (year: number, target: number) => Promise<void>;
+}) {
   const histSeries = toTimeSeries(historical);
   const fcstSeries = toTimeSeries(forecast).filter((p) => p.kind === "projected");
   const noInvSeries = toTimeSeries(forecastNoInvest).filter((p) => p.kind === "projected");
@@ -40,21 +44,143 @@ function CombinedWealthChart({ title, historical, forecast, forecastNoInvest, co
   const line = themeColor("--line");
   const tipStyle = { background: panel, border: `1px solid ${line}`, borderRadius: 12, color: ink, boxShadow: "var(--shadow)" };
   return (
-    <div className="panel">
+    <div className="panel wealth-split-panel">
       <h2>{title}</h2>
       {note && <p className="muted chart-note">{note}</p>}
-      <div className="chart-frame">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={merged} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke={track} />
-            <XAxis dataKey="at" type="number" scale="time" domain={["dataMin", "dataMax"]} tickFormatter={formatAxisDate} minTickGap={28} tick={{ fontSize: 11, fill: muted }} />
-            <YAxis width={64} tickFormatter={axisMoney} tick={{ fontSize: 11, fill: muted }} />
-            <Tooltip contentStyle={tipStyle} itemStyle={{ color: ink }} labelStyle={{ color: muted }} labelFormatter={(ms) => formatAxisDate(Number(ms))} formatter={(value) => euro.format(Number(value))} />
-            <Line type="monotone" dataKey="historical" stroke={color} strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} name="Wealth" />
-            <Line type="monotone" dataKey="forecast" stroke={forecastColor} strokeWidth={2} strokeDasharray="6 3" dot={false} activeDot={{ r: 3 }} name="Forecast (invested)" />
-            <Line type="monotone" dataKey="noInvest" stroke={muted} strokeWidth={1.5} strokeDasharray="4 4" dot={false} activeDot={{ r: 3 }} name="Forecast (0% invest)" />
-          </LineChart>
-        </ResponsiveContainer>
+      <div className="wealth-split">
+        <div className="wealth-split-chart">
+          <div className="chart-frame">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={merged} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={track} />
+                <XAxis dataKey="at" type="number" scale="time" domain={["dataMin", "dataMax"]} tickFormatter={formatAxisDate} minTickGap={28} tick={{ fontSize: 11, fill: muted }} />
+                <YAxis width={64} tickFormatter={axisMoney} tick={{ fontSize: 11, fill: muted }} />
+                <Tooltip contentStyle={tipStyle} itemStyle={{ color: ink }} labelStyle={{ color: muted }} labelFormatter={(ms) => formatAxisDate(Number(ms))} formatter={(value) => euro.format(Number(value))} />
+                <Line type="monotone" dataKey="historical" stroke={color} strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} name="Wealth" />
+                <Line type="monotone" dataKey="forecast" stroke={forecastColor} strokeWidth={2} strokeDasharray="6 3" dot={false} activeDot={{ r: 3 }} name="Forecast (invested)" />
+                <Line type="monotone" dataKey="noInvest" stroke={muted} strokeWidth={1.5} strokeDasharray="4 4" dot={false} activeDot={{ r: 3 }} name="Forecast (0% invest)" />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+        <div className="wealth-split-objectives">
+          <h3>Yearly objectives</h3>
+          <YearlyObjectivesTable objectives={objectives} onSaveTarget={onSaveTarget} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function YearlyObjectivesTable({ objectives, onSaveTarget }: { objectives: YearlyObjective[]; onSaveTarget: (year: number, target: number) => Promise<void> }) {
+  const [drafts, setDrafts] = useState<Record<number, string>>({});
+  useEffect(() => {
+    const next: Record<number, string> = {};
+    for (const row of objectives) next[row.year] = row.target_net_worth == null ? "" : String(row.target_net_worth);
+    setDrafts(next);
+  }, [objectives]);
+  return (
+    <table className="objectives-table">
+      <thead>
+        <tr>
+          <th>Year</th>
+          <th>Target</th>
+          <th>Forecast</th>
+          <th>Actual</th>
+        </tr>
+      </thead>
+      <tbody>
+        {objectives.map((row) => (
+          <tr key={row.year}>
+            <td>{row.year}</td>
+            <td>
+              <input
+                type="number"
+                step="0.01"
+                className="cell-input"
+                value={drafts[row.year] ?? ""}
+                onChange={(e) => setDrafts((prev) => ({ ...prev, [row.year]: e.target.value }))}
+                onBlur={() => {
+                  const raw = drafts[row.year];
+                  if (raw === "" || raw == null) return;
+                  void onSaveTarget(row.year, Number(raw));
+                }}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return;
+                  (e.target as HTMLInputElement).blur();
+                }}
+                placeholder="—"
+              />
+            </td>
+            <td>{row.forecast_year_end == null ? "—" : euro.format(row.forecast_year_end)}</td>
+            <td>{row.actual_net_worth == null ? "—" : euro.format(row.actual_net_worth)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function InvestmentLedger({ rows, onSaveReal }: { rows: InvestmentMonthRow[]; onSaveReal: (year: number, month: number, realValue: number | null) => Promise<void> }) {
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const next: Record<string, string> = {};
+    for (const row of rows) next[`${row.year}-${row.month}`] = row.real_value == null ? "" : String(row.real_value);
+    setDrafts(next);
+  }, [rows]);
+  const keyOf = (row: InvestmentMonthRow) => `${row.year}-${row.month}`;
+  return (
+    <div className="strategy-invest-wrap">
+      <h3 className="strategy-invest-title">End-of-month investments</h3>
+      <p className="muted strategy-invest-lead">Accum compounds invested amounts at S&amp;P. Enter real portfolio value to mark to market.</p>
+      <div className="strategy-invest-scroll">
+        <table className="strategy-invest-table">
+          <thead>
+            <tr>
+              <th>Month</th>
+              <th>Investment amount</th>
+              <th>Investment %</th>
+              <th>Accum value</th>
+              <th>Real value</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => {
+              const key = keyOf(row);
+              return (
+                <tr key={key}>
+                  <td>{row.label}</td>
+                  <td>{euro.format(row.investment_amount)}</td>
+                  <td>{whole.format(Math.round(row.investment_pct))}%</td>
+                  <td>{euro.format(row.accum_value)}</td>
+                  <td>
+                    <input
+                      type="number"
+                      step="0.01"
+                      className="cell-input"
+                      value={drafts[key] ?? ""}
+                      onChange={(e) => setDrafts((prev) => ({ ...prev, [key]: e.target.value }))}
+                      onBlur={() => {
+                        const raw = drafts[key];
+                        const next = raw === "" || raw == null ? null : Number(raw);
+                        if (next === row.real_value || (next == null && row.real_value == null)) return;
+                        void onSaveReal(row.year, row.month, next);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key !== "Enter") return;
+                        (e.target as HTMLInputElement).blur();
+                      }}
+                      placeholder="—"
+                    />
+                  </td>
+                </tr>
+              );
+            })}
+            {rows.length === 0 && (
+              <tr><td colSpan={5} className="muted">No months yet.</td></tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -163,6 +289,18 @@ export function DashboardPage() {
     await load(year, month);
   }
 
+  async function saveInvestmentReal(rowYear: number, rowMonth: number, realValue: number | null) {
+    await api.updateInvestmentReal(rowYear, rowMonth, realValue);
+    setMessage("Real investment value saved");
+    await load(year, month);
+  }
+
+  async function saveYearlyTarget(targetYear: number, target: number) {
+    await api.updateYearlyObjective(targetYear, target);
+    setMessage("Yearly objective saved");
+    await load(year, month);
+  }
+
   async function selectCategory(entry: CategorySpend) {
     if (!year || !month) return;
     if (selectedCategory?.category_name === entry.category_name) {
@@ -233,6 +371,7 @@ export function DashboardPage() {
             <CompareBar label="Save" actual={m.actual_save_pct} plan={savePct} color="var(--save)" />
             <CompareBar label="Invest" actual={m.actual_invest_pct} plan={investPct} color="var(--invest)" />
           </div>
+          <InvestmentLedger rows={data.investment_month_rows || []} onSaveReal={(y, mo, v) => saveInvestmentReal(y, mo, v).catch((err: Error) => setMessage(err.message))} />
         </div>
 
         <div className="panel cat-panel">
@@ -303,7 +442,7 @@ export function DashboardPage() {
         )}
       </div>
 
-      <CombinedWealthChart
+      <CombinedWealthPanel
         title="Accumulated wealth & 1y forecast"
         historical={data.wealth_series}
         forecast={data.wealth_projection}
@@ -311,6 +450,8 @@ export function DashboardPage() {
         color={themeColor("--accent-2")}
         forecastColor={themeColor("--accent")}
         note={`Forecast: spend ${whole.format(Math.round(a.spend_pct))}% · save ${whole.format(Math.round(a.save_pct))}% · invest ${whole.format(Math.round(a.invest_pct))}% · S&P ${a.sp500_annual_return_pct}%/yr`}
+        objectives={data.yearly_objectives || []}
+        onSaveTarget={(y, t) => saveYearlyTarget(y, t).catch((err: Error) => setMessage(err.message))}
       />
 
       <div className="panel cat-detail-panel">

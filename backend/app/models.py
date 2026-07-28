@@ -52,6 +52,7 @@ class Household(Base):
     monthly_strategies: Mapped[list["MonthlyStrategy"]] = relationship(back_populates="household")
     investment_reals: Mapped[list["MonthlyInvestmentReal"]] = relationship(back_populates="household")
     yearly_objectives: Mapped[list["YearlyWealthObjective"]] = relationship(back_populates="household")
+    wealth_bases: Mapped[list["MonthlyWealthBase"]] = relationship(back_populates="household")
     spend_benchmark: Mapped["SpendBenchmark | None"] = relationship(back_populates="household", uselist=False)
 
 
@@ -209,6 +210,17 @@ class YearlyWealthObjective(Base):
     year: Mapped[int] = mapped_column(Integer, nullable=False)
     target_net_worth: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     household: Mapped["Household"] = relationship(back_populates="yearly_objectives")
+
+
+class MonthlyWealthBase(Base):
+    __tablename__ = "monthly_wealth_bases"
+    __table_args__ = (UniqueConstraint("household_id", "year", "month", name="uq_wealth_base_household_month"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    household_id: Mapped[int] = mapped_column(ForeignKey("households.id"), nullable=False)
+    year: Mapped[int] = mapped_column(Integer, nullable=False)
+    month: Mapped[int] = mapped_column(Integer, nullable=False)
+    net_worth: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    household: Mapped["Household"] = relationship(back_populates="wealth_bases")
 
 
 class SpendBenchmark(Base):

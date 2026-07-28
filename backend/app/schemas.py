@@ -199,6 +199,18 @@ class MonthNavRowOut(BaseModel):
     save_pct: float
     net_worth: float
     net_worth_delta_pct: float | None
+    is_opening: bool = False
+
+
+class OpeningWealthIn(BaseModel):
+    net_worth: float
+
+
+class OpeningWealthOut(BaseModel):
+    year: int
+    month: int
+    net_worth: float
+    model_config = {"from_attributes": True}
 
 
 class InstitutionOut(BaseModel):

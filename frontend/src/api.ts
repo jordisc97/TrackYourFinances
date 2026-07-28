@@ -10,6 +10,15 @@ export type Transaction = {
 export type Institution = { id: string; name: string; country: string; logo: string | null };
 export type BankConnection = { id: number; provider: string; institution_id: string; institution_name: string; status: string; consent_expires_at: string | null; last_synced_at: string | null };
 export type MonthlyStrategy = { year: number; month: number; save_pct: number; spend_pct: number; invest_pct: number };
+export type InvestmentMonthRow = {
+  year: number; month: number; label: string;
+  investment_amount: number; investment_pct: number; accum_value: number;
+  real_value: number | null; cum_invest: number;
+};
+export type YearlyObjective = {
+  year: number; target_net_worth: number | null;
+  forecast_year_end: number | null; actual_net_worth: number | null;
+};
 export type MonthNavRow = {
   year: number; month: number; label: string; income: number; real_spend: number;
   save_pct: number; net_worth: number; net_worth_delta_pct: number | null;
@@ -33,6 +42,8 @@ export type Dashboard = {
   net_worth: number; month: MonthlySummary; spend_by_category: CategorySpend[]; accounts: Account[];
   invested_total: number;
   strategy: MonthlyStrategy; month_rows: MonthNavRow[];
+  investment_month_rows: InvestmentMonthRow[];
+  yearly_objectives: YearlyObjective[];
   wealth_series: SeriesPoint[];
   wealth_projection: SeriesPoint[]; wealth_projection_no_invest: SeriesPoint[]; projection_assumptions: ProjectionAssumptions;
   benchmark_location?: string; benchmark_source?: string;
@@ -109,6 +120,10 @@ export const api = {
   },
   updateStrategy: (year: number, month: number, body: { spend_pct: number; save_pct: number; invest_pct: number }) =>
     request<MonthlyStrategy>(`/api/dashboard/strategy?year=${year}&month=${month}`, { method: "PUT", body: JSON.stringify(body) }),
+  updateInvestmentReal: (year: number, month: number, real_value: number | null) =>
+    request<{ year: number; month: number; real_value: number | null }>(`/api/dashboard/investment-real?year=${year}&month=${month}`, { method: "PUT", body: JSON.stringify({ real_value }) }),
+  updateYearlyObjective: (year: number, target_net_worth: number) =>
+    request<YearlyObjective>(`/api/dashboard/yearly-objective?year=${year}`, { method: "PUT", body: JSON.stringify({ target_net_worth }) }),
   accounts: () => request<Account[]>("/api/accounts"),
   createAccount: (body: object) => request<Account>("/api/accounts", { method: "POST", body: JSON.stringify(body) }),
   addBalance: (accountId: number, amount: number, snapshot_date?: string) =>

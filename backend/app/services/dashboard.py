@@ -551,12 +551,22 @@ def average_income_spend(db: Session, household_id: int, month_rows: list[MonthN
     return round(avg_income, 2), round(avg_spend, 2)
 
 
-def _project_forward_from_wealth(start_wealth: float, base_income: float, spend_pct: float, save_pct: float, invest_pct: float, through_year: int, through_month: int, months: int) -> list[dict]:
+def _project_forward_from_wealth(
+    start_wealth: float,
+    base_income: float,
+    spend_pct: float,
+    save_pct: float,
+    invest_pct: float,
+    through_year: int,
+    through_month: int,
+    months: int,
+    start_invested: float = 0.0,
+) -> list[dict]:
     monthly_save = base_income * save_pct / 100
     monthly_invest = base_income * invest_pct / 100
-    monthly_rate = (1 + SP500_ANNUAL_RETURN) ** (1 / 12) - 1
-    wealth = start_wealth
-    invested = 0.0
+    monthly_rate = monthly_sp500_rate()
+    invested = start_invested
+    wealth = start_wealth - invested
     points: list[dict] = [{"label": f"{through_year}-{through_month:02d}", "value": round(wealth + invested, 2), "kind": "actual"}]
     y, m = through_year, through_month
     for _ in range(months):
@@ -583,6 +593,41 @@ def _project_forward_no_invest_from_wealth(start_wealth: float, base_income: flo
     return points
 
 
+def build_yearly_objectives(
+    db: Session,
+    household_id: int,
+    base_year: int,
+    month_rows: list[MonthNavRowOut],
+    invest_rows: list[InvestmentMonthRowOut],
+    long_projection: list[dict],
+) -> list[YearlyObjectiveOut]:
+    targets = yearly_objective_map(db, household_id)
+    invest_by_key = {(row.year, row.month): row for row in invest_rows}
+    nav_by_key = {(row.year, row.month): row for row in month_rows}
+    proj_by_label = {point["label"]: point["value"] for point in long_projection}
+    objectives: list[YearlyObjectiveOut] = []
+    for offset in range(3):
+        year = base_year + offset
+        dec_nav = nav_by_key.get((year, 12))
+        dec_invest = invest_by_key.get((year, 12))
+        actual = None
+        if dec_nav is not None:
+            cum = dec_invest.cum_invest if dec_invest is not None else 0.0
+            real = dec_invest.real_value if dec_invest is not None else None
+            actual = adjusted_net_worth(dec_nav.net_worth, cum, real)
+        forecast = proj_by_label.get(f"{year}-12")
+        target = targets.get(year)
+        objectives.append(
+            YearlyObjectiveOut(
+                year=year,
+                target_net_worth=target,
+                forecast_year_end=round(forecast, 2) if forecast is not None else None,
+                actual_net_worth=actual,
+            )
+        )
+    return objectives
+
+
 def build_wealth_projection(
     db: Session,
     household_id: int,
@@ -591,18 +636,29 @@ def build_wealth_projection(
     through_month: int,
     month_rows: list[MonthNavRowOut] | None = None,
     month_txs: list[Transaction] | None = None,
-) -> tuple[list[dict], list[dict], dict]:
+    invest_rows: list[InvestmentMonthRowOut] | None = None,
+    chart_months: int = 12,
+    long_end_year: int | None = None,
+) -> tuple[list[dict], list[dict], dict, list[dict]]:
     avg_income, _ = average_income_spend(db, household_id, month_rows)
     month_txs = month_txs if month_txs is not None else month_transactions(db, household_id, through_year, through_month)
     month_wage = month_wage_total(month_txs)
     base_income = month_wage if month_wage > 0 else avg_income
     current_row = month_row_lookup(month_rows or [], through_year, through_month) if month_rows is not None else None
-    start_wealth = round(current_row.net_worth, 2) if current_row is not None else 0.0
+    invest = investment_row_lookup(invest_rows or [], through_year, through_month) if invest_rows else None
+    cashflow = round(current_row.net_worth, 2) if current_row is not None else 0.0
+    cum = invest.cum_invest if invest is not None else 0.0
+    real = invest.real_value if invest is not None else None
+    start_wealth = adjusted_net_worth(cashflow, cum, real)
+    start_invested = seed_invested_from_rows(invest_rows or [], through_year, through_month)
     spend_pct = strategy.spend_pct
     save_pct = strategy.save_pct
     invest_pct = strategy.invest_pct
-    points = _project_forward_from_wealth(start_wealth, base_income, spend_pct, save_pct, invest_pct, through_year, through_month, 12)
-    points_no_invest = _project_forward_no_invest_from_wealth(start_wealth, base_income, save_pct, invest_pct, through_year, through_month, 12)
+    end_year = long_end_year if long_end_year is not None else through_year + 2
+    long_months = max(chart_months, months_until(through_year, through_month, end_year, 12))
+    long_points = _project_forward_from_wealth(start_wealth, base_income, spend_pct, save_pct, invest_pct, through_year, through_month, long_months, start_invested)
+    points = long_points[: chart_months + 1]
+    points_no_invest = _project_forward_no_invest_from_wealth(start_wealth, base_income, save_pct, invest_pct, through_year, through_month, chart_months)
     assumptions = {
         "avg_monthly_income": round(base_income, 2),
         "avg_monthly_spend": round(base_income * spend_pct / 100, 2),
@@ -612,7 +668,7 @@ def build_wealth_projection(
         "sp500_annual_return_pct": round(SP500_ANNUAL_RETURN * 100, 1),
         "years": 1,
     }
-    return points, points_no_invest, assumptions
+    return points, points_no_invest, assumptions, long_points
 
 
 def build_dashboard(db: Session, household_id: int, year: int | None = None, month: int | None = None) -> DashboardOut:
@@ -638,9 +694,11 @@ def build_dashboard(db: Session, household_id: int, year: int | None = None, mon
     invested_total = round(sum(balances[account.id] for account in accounts if account.account_type == AccountType.investment.value), 2)
     txs = month_transactions(db, household_id, year, month, all_txs)
     strategy = get_or_create_strategy(db, household_id, year, month)
-    projection, projection_no_invest, assumptions = build_wealth_projection(
-        db, household_id, strategy, year, month, month_rows=month_rows, month_txs=txs
+    invest_rows = build_investment_month_rows(db, household_id, month_rows, all_txs)
+    projection, projection_no_invest, assumptions, long_projection = build_wealth_projection(
+        db, household_id, strategy, year, month, month_rows=month_rows, month_txs=txs, invest_rows=invest_rows, long_end_year=year + 2
     )
+    yearly_objectives = build_yearly_objectives(db, household_id, year, month_rows, invest_rows, long_projection)
     month_income = month_wage_total(txs)
     avg_income, _ = average_income_spend(db, household_id, month_rows)
     income_for_benchmark = month_income if month_income > 0 else avg_income
@@ -650,17 +708,25 @@ def build_dashboard(db: Session, household_id: int, year: int | None = None, mon
         AccountOut(id=a.id, name=a.name, institution=a.institution, currency=a.currency, account_type=a.account_type, source=a.source, is_active=a.is_active, latest_balance=balances.get(a.id, 0.0))
         for a in accounts
     ]
-    wealth_series_data = month_rows_wealth_series(month_rows, year, month, 12)
+    wealth_series_data = month_rows_wealth_series_adjusted(month_rows, invest_rows, year, month, 12)
     selected_row = month_row_lookup(month_rows, year, month)
+    selected_invest = investment_row_lookup(invest_rows, year, month)
+    selected_nw = 0.0
+    if selected_row is not None:
+        cum = selected_invest.cum_invest if selected_invest is not None else 0.0
+        real = selected_invest.real_value if selected_invest is not None else None
+        selected_nw = adjusted_net_worth(selected_row.net_worth, cum, real)
 
     return DashboardOut(
-        net_worth=round(selected_row.net_worth, 2) if selected_row is not None else 0.0,
+        net_worth=selected_nw,
         month=build_monthly_summary(db, household_id, year, month, txs, strategy, month_rows),
         spend_by_category=spend_by_category(txs, benchmarks),
         accounts=account_outs,
         invested_total=invested_total,
         strategy=strategy_out(strategy),
         month_rows=month_rows,
+        investment_month_rows=invest_rows,
+        yearly_objectives=yearly_objectives,
         wealth_series=wealth_series_data,
         wealth_projection=projection,
         wealth_projection_no_invest=projection_no_invest,
