@@ -1,5 +1,4 @@
 import time
-from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -8,48 +7,7 @@ import httpx
 import jwt
 
 from app.config import get_settings
-
-
-@dataclass
-class ProviderInstitution:
-    id: str
-    name: str
-    country: str
-    logo: str | None = None
-
-
-@dataclass
-class ProviderAccount:
-    external_id: str
-    name: str
-    currency: str
-    iban: str | None
-    account_type: str
-    balance: float
-
-
-@dataclass
-class ProviderTransaction:
-    external_id: str
-    booked_at: date
-    amount: float
-    currency: str
-    description: str
-    merchant: str
-
-
-@dataclass
-class AuthSession:
-    authorization_url: str
-    session_id: str
-
-
-@dataclass
-class AuthResult:
-    session_id: str
-    accounts: list[ProviderAccount]
-    consent_expires_at: datetime | None
-
+from app.providers.base import AuthResult, AuthSession, ProviderAccount, ProviderInstitution, ProviderTransaction
 
 V1_INSTITUTIONS = [
     ProviderInstitution(id="REVOLUT_ES", name="Revolut", country="ES"),
@@ -107,7 +65,7 @@ class EnableBankingProvider:
         valid_until = (datetime.now(timezone.utc) + timedelta(days=89)).strftime("%Y-%m-%dT%H:%M:%SZ")
         body = {
             "access": {"valid_until": valid_until, "balances": True, "transactions": True},
-            "aspsp": {"name": institution_id, "country": self.settings.enable_banking_country},
+            "aspsp": {"name": institution_id, "country": self.settings.bank_country},
             "state": state,
             "redirect_url": self.settings.enable_banking_redirect_url,
             "psu_type": "personal",
@@ -224,7 +182,3 @@ class EnableBankingProvider:
                 )
             )
         return result
-
-
-def get_bank_provider() -> EnableBankingProvider:
-    return EnableBankingProvider()

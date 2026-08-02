@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from app.services.sync import sync_connection
 from app.database import SessionLocal
 from app.models import BankConnection, ConnectionStatus
-from app.providers.enable_banking import get_bank_provider
+from app.providers import get_bank_provider
 
 
 def main() -> None:

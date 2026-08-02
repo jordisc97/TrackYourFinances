@@ -72,7 +72,7 @@ class BankConnection(Base):
     __tablename__ = "bank_connections"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     household_id: Mapped[int] = mapped_column(ForeignKey("households.id"), nullable=False)
-    provider: Mapped[str] = mapped_column(String(40), default="enable_banking")
+    provider: Mapped[str] = mapped_column(String(40), default="gocardless")
     institution_id: Mapped[str] = mapped_column(String(120), nullable=False)
     institution_name: Mapped[str] = mapped_column(String(120), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default=ConnectionStatus.pending.value)

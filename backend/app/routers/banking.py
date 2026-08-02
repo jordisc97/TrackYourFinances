@@ -9,7 +9,9 @@ from app.config import get_settings
 from app.database import get_db
 from app.deps import get_current_user
 from app.models import BankConnection, ConnectionStatus, User
-from app.providers.enable_banking import EnableBankingProvider, get_bank_provider
+from app.providers import get_bank_provider
+from app.providers.base import BankProvider
+from app.providers.gocardless import GoCardlessProvider
 from app.schemas import AuthStartOut, BankConnectionOut, InstitutionOut
 from app.services.sync import sync_connection
 
@@ -28,7 +30,7 @@ def _connection_for_user(db: Session, connection_id: int, household_id: int) -> 
     return connection
 
 
-def _start_auth(db: Session, connection: BankConnection, provider: EnableBankingProvider) -> AuthStartOut:
+def _start_auth(db: Session, connection: BankConnection, provider: BankProvider) -> AuthStartOut:
     session = provider.start_authorization(connection.institution_id, state=str(connection.id))
     connection.session_id = session.session_id
     connection.status = ConnectionStatus.pending.value
@@ -39,7 +41,7 @@ def _start_auth(db: Session, connection: BankConnection, provider: EnableBanking
 @router.get("/institutions", response_model=list[InstitutionOut])
 def institutions(user: User = Depends(get_current_user)) -> list[InstitutionOut]:
     provider = get_bank_provider()
-    return [InstitutionOut(id=i.id, name=i.name, country=i.country, logo=i.logo) for i in provider.list_institutions(get_settings().enable_banking_country)]
+    return [InstitutionOut(id=i.id, name=i.name, country=i.country, logo=i.logo) for i in provider.list_institutions(get_settings().bank_country)]
 
 
 @router.get("/connections", response_model=list[BankConnectionOut])
@@ -50,7 +52,7 @@ def connections(user: User = Depends(get_current_user), db: Session = Depends(ge
 @router.post("/connect/{institution_id}", response_model=AuthStartOut)
 def connect(institution_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> AuthStartOut:
     provider = get_bank_provider()
-    institutions = {i.id: i for i in provider.list_institutions(get_settings().enable_banking_country)}
+    institutions = {i.id: i for i in provider.list_institutions(get_settings().bank_country)}
     institution = institutions.get(institution_id)
     if institution is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Institution not found")
@@ -66,27 +68,36 @@ def connect(institution_id: str, user: User = Depends(get_current_user), db: Ses
 
 
 @router.get("/callback")
-def callback(code: str | None = None, state: str | None = None, error: str | None = None, error_description: str | None = None, db: Session = Depends(get_db)) -> RedirectResponse:
+def callback(
+    code: str | None = None,
+    state: str | None = None,
+    ref: str | None = None,
+    error: str | None = None,
+    error_description: str | None = None,
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    connection_ref = state or ref
     if error:
-        if state and state.isdigit():
-            connection = db.get(BankConnection, int(state))
+        if connection_ref and connection_ref.isdigit():
+            connection = db.get(BankConnection, int(connection_ref))
             if connection is not None:
                 connection.status = ConnectionStatus.error.value
                 db.commit()
         detail = error_description or error
         message = "Bank login was cancelled. You can retry from Banks, or import a CSV instead." if error == "access_denied" else f"Bank login failed: {detail}"
         return _banks_redirect("failed", message)
-    if not state or not state.isdigit():
+    if not connection_ref or not connection_ref.isdigit():
         return _banks_redirect("failed", "Missing bank connection state.")
-    connection = db.get(BankConnection, int(state))
+    connection = db.get(BankConnection, int(connection_ref))
     if connection is None:
         return _banks_redirect("failed", "Bank connection not found.")
-    if not code:
+    provider = get_bank_provider()
+    is_gocardless = connection.provider == GoCardlessProvider.name or isinstance(provider, GoCardlessProvider)
+    if not is_gocardless and not code:
         connection.status = ConnectionStatus.error.value
         db.commit()
         return _banks_redirect("failed", "Bank login did not return an authorization code. Try again.")
-    provider = get_bank_provider()
-    result = provider.complete_authorization(code, state, connection.session_id or "")
+    result = provider.complete_authorization(code, connection_ref, connection.session_id or "")
     connection.session_id = result.session_id
     connection.consent_expires_at = result.consent_expires_at
     connection.status = ConnectionStatus.active.value

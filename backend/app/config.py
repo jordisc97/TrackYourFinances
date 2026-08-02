@@ -11,11 +11,16 @@ class Settings(BaseSettings):
     default_spend_pct: float = 50.0
     default_save_pct: float = 25.0
     default_invest_pct: float = 25.0
+    bank_provider: str = "gocardless"
+    bank_country: str = "ES"
     enable_banking_app_id: str = ""
     enable_banking_private_key_path: str = ""
     enable_banking_base_url: str = "https://api.enablebanking.com"
     enable_banking_redirect_url: str = "http://127.0.0.1:8100/api/banking/callback"
-    enable_banking_country: str = "ES"
+    gc_secret_id: str = ""
+    gc_secret_key: str = ""
+    gc_base_url: str = "https://bankaccountdata.gocardless.com/api/v2"
+    gc_redirect_url: str = "http://127.0.0.1:8100/api/banking/callback"
     jwt_expire_minutes: int = 60 * 24 * 7
     jwt_algorithm: str = "HS256"
     deepseek_api: str = ""

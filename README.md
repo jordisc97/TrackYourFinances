@@ -6,7 +6,7 @@ Private household finance tracker for European banks (Revolut + Banco Sabadell f
 
 - Backend: FastAPI + SQLite + SQLAlchemy
 - Frontend: Vite + React + TypeScript + Recharts
-- Open Banking: Enable Banking (mock mode without API keys)
+- Open Banking: GoCardless Bank Account Data (default; Enable Banking still available via env)
 
 ## Quick start
 
@@ -29,18 +29,22 @@ Open **http://127.0.0.1:5174** — register a household, invite your partner fro
 
 API root: http://127.0.0.1:8001/ · docs: http://127.0.0.1:8001/docs
 
-### Enable Banking (live)
+### Bank connection (GoCardless)
 
-1. Create an app at https://enablebanking.com/
+1. Sign up at https://bankaccountdata.gocardless.com/ and get `secret_id` / `secret_key`.
 2. Put credentials in `backend/.env`:
 
 ```
-ENABLE_BANKING_APP_ID=...
-ENABLE_BANKING_PRIVATE_KEY_PATH=C:\path\to\private.pem
-ENABLE_BANKING_REDIRECT_URL=http://127.0.0.1:8001/api/banking/callback
+BANK_PROVIDER=gocardless
+BANK_COUNTRY=ES
+GC_SECRET_ID=...
+GC_SECRET_KEY=...
+GC_REDIRECT_URL=http://127.0.0.1:8001/api/banking/callback
 ```
 
-Without keys, **Banks → Connect** uses mock consent so you can develop the UI/flow.
+Without GC keys, **Banks → Connect** uses mock consent so you can develop the UI/flow.
+
+To use Enable Banking instead, set `BANK_PROVIDER=enable_banking` and the existing `ENABLE_BANKING_*` vars.
 
 ### CSV import
 
@@ -58,5 +62,5 @@ cd backend
 1. Household auth + invite code for partner
 2. Manual accounts / balance snapshots (brokers, crypto, etc.)
 3. CSV import + category assign (creates rules)
-4. Revolut / Sabadell connect via Enable Banking
+4. Bank connect via GoCardless (or Enable Banking via `BANK_PROVIDER`)
 5. Dashboard: net worth, spend %, save/invest allocation targets, wealth charts

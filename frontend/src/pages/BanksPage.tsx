@@ -51,13 +51,12 @@ export function BanksPage() {
       <section className="hero">
         <h1>Banks</h1>
         <p>
-          Connect via Enable Banking (<strong>Sandbox</strong>). Do not use your real Sabadell password here.
-          Test user: <code>user1</code> / <code>1234</code> / OTP <code>012345</code>.
-          Revolut is not in sandbox — use Production later or CSV import.
+          Connect your bank to sync balances and transactions. You will be redirected to authorize access;
+          credentials stay with your bank. You can also <Link to="/transactions">import a CSV</Link> instead.
         </p>
         {connections.length === 0 && (
           <p className="muted" style={{ marginTop: "0.75rem" }}>
-            No bank linked yet — connect below, or <Link to="/transactions">import a CSV</Link>.
+            No bank linked yet — pick an institution below to get started.
           </p>
         )}
       </section>
