@@ -714,10 +714,14 @@ def build_dashboard(db: Session, household_id: int, year: int | None = None, mon
     all_txs = household_transactions(db, household_id)
     month_rows = build_month_rows(db, household_id, all_txs)
     if year is None or month is None:
+        last_month = today.month - 1 or 12
+        last_year = today.year if today.month > 1 else today.year - 1
         if month_rows:
-            year, month = month_rows[-1].year, month_rows[-1].month
+            completed = [row for row in month_rows if (row.year, row.month) <= (last_year, last_month)]
+            pick = completed[-1] if completed else month_rows[-1]
+            year, month = pick.year, pick.month
         else:
-            year, month = today.year, today.month
+            year, month = last_year, last_month
     accounts = active_accounts(db, household_id)
     ends = [month_bounds(year, month)[1]]
     prev_month = month - 1 or 12

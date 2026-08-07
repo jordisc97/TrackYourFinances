@@ -49,11 +49,20 @@ def ensure_schema() -> None:
                 conn.execute(text("ALTER TABLE households ADD COLUMN location VARCHAR(120) DEFAULT ''"))
     if "monthly_strategies" in inspector.get_table_names():
         cols = {c["name"] for c in inspector.get_columns("monthly_strategies")}
+        legacy_asset_cols = ("crypto_pct", "stocks_pct", "etfs_pct")
         if "invest_pct" not in cols:
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE monthly_strategies ADD COLUMN invest_pct FLOAT DEFAULT 25.0"))
                 if "crypto_pct" in cols:
                     conn.execute(text("UPDATE monthly_strategies SET invest_pct = COALESCE(crypto_pct, 0) + COALESCE(stocks_pct, 0) + COALESCE(etfs_pct, 0)"))
+        cols = {c["name"] for c in inspect(engine).get_columns("monthly_strategies")}
+        drop_cols = [name for name in legacy_asset_cols if name in cols]
+        if drop_cols:
+            with engine.begin() as conn:
+                if "crypto_pct" in cols:
+                    conn.execute(text("UPDATE monthly_strategies SET invest_pct = COALESCE(invest_pct, COALESCE(crypto_pct, 0) + COALESCE(stocks_pct, 0) + COALESCE(etfs_pct, 0))"))
+                for name in drop_cols:
+                    conn.execute(text(f"ALTER TABLE monthly_strategies DROP COLUMN {name}"))
     if "transactions" in inspector.get_table_names():
         tx_cols = {c["name"] for c in inspector.get_columns("transactions")}
         additions = [

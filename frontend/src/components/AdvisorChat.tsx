@@ -72,7 +72,7 @@ export function AdvisorChat({
     <div className="panel advisor-panel">
       <div className="advisor-head">
         <h2>Financial advisor</h2>
-        <p className="muted">DeepSeek · uses this month’s data · can recategorize</p>
+        <p className="muted">DeepSeek · month summary + any-month recategorize</p>
       </div>
       <div className="advisor-suggestions">
         {SUGGESTIONS.map((hint) => (

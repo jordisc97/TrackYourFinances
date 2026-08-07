@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, type CategorySpend, type Dashboard, type InvestmentMonthRow, type MonthNavRow, type SeriesPoint, type Transaction, type YearlyObjective } from "../api";
@@ -193,15 +193,23 @@ function MonthTable({ rows, year, month, onSelect, onSaveOpeningWealth }: {
 }) {
   const opening = rows.find((row) => row.is_opening) ?? rows[0];
   const [draft, setDraft] = useState(opening ? String(opening.net_worth) : "");
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const activeRowRef = useRef<HTMLTableRowElement | null>(null);
   useEffect(() => {
     const row = rows.find((r) => r.is_opening) ?? rows[0];
     setDraft(row ? String(row.net_worth) : "");
   }, [rows]);
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    const last = rows[rows.length - 1];
+    if (scroller && last && last.year === year && last.month === month) scroller.scrollTop = scroller.scrollHeight;
+    else activeRowRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [year, month, rows]);
   return (
     <div className="panel month-table-panel">
       <h2>Month over month</h2>
       <p className="muted month-table-hint">Edit wealth on the first month to set a starting balance; later months = previous + wage − spend.</p>
-      <div className="month-table-scroll">
+      <div className="month-table-scroll" ref={scrollRef}>
         <table className="month-nav-table">
           <thead>
             <tr>
@@ -219,7 +227,12 @@ function MonthTable({ rows, year, month, onSelect, onSaveOpeningWealth }: {
               const saveTone = row.save_pct >= 40 ? "good" : row.save_pct >= 20 ? "mid" : "low";
               const isOpening = Boolean(row.is_opening);
               return (
-                <tr key={`${row.year}-${row.month}`} className={`${active ? "is-active" : ""} save-${saveTone}`} onClick={() => onSelect(row.year, row.month)}>
+                <tr
+                  key={`${row.year}-${row.month}`}
+                  ref={active ? activeRowRef : undefined}
+                  className={`${active ? "is-active" : ""} save-${saveTone}`}
+                  onClick={() => onSelect(row.year, row.month)}
+                >
                   <td>{row.label}</td>
                   <td>{euro.format(row.income ?? 0)}</td>
                   <td className="amount-neg">{euro.format(row.real_spend)}</td>
@@ -352,6 +365,7 @@ export function DashboardPage() {
     setCategoryExpenses(txs);
   }
 
+  if (message && !data) return <p className="muted">{message}</p>;
   if (!data || year == null || month == null) return <p className="muted">Loading dashboard…</p>;
   const m = data.month;
   const investmentAccounts = data.accounts.filter((account) => account.account_type === ACCOUNT_TYPE_INVESTMENT);
@@ -462,6 +476,10 @@ export function DashboardPage() {
         </div>
       </div>
 
+      {year != null && month != null && (
+        <AdvisorChat year={year} month={month} onMutated={() => { void load(year, month); }} />
+      )}
+
       <div className="panel invest-panel">
         <div className="invest-panel-head">
           <h2>Investments</h2>
@@ -533,10 +551,6 @@ export function DashboardPage() {
           </table>
         )}
       </div>
-
-      {year != null && month != null && (
-        <AdvisorChat year={year} month={month} onMutated={() => { void load(year, month); }} />
-      )}
     </div>
   );
 }

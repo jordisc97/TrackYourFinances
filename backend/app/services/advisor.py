@@ -21,13 +21,24 @@ from app.services.splits import replace_splits, signed_portion_amount, validate_
 
 RECENT_TX_LIMIT = 120
 SEARCH_TX_LIMIT = 40
+SEARCH_SCAN_LIMIT = 3000
+SEARCH_TOKEN_LIMIT = 12
 UNCATEGORIZED_SAMPLE = 12
 HISTORY_LIMIT = 12
 RECATEGORIZE_CAP = 50
 SPLIT_CAP = 10
 JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
 TOKEN_RE = re.compile(r"[A-Za-zÀ-ÿ0-9]{4,}")
-STOP_WORDS = {"that", "this", "with", "from", "into", "have", "been", "were", "was", "split", "bill", "paid", "rest", "ticket", "plane", "wife", "husband", "share", "spent", "spend", "please", "should", "count", "spending", "transaction", "transactions"}
+STOP_WORDS = {
+    "that", "this", "with", "from", "into", "have", "been", "were", "was", "split", "bill", "paid", "rest",
+    "ticket", "plane", "wife", "husband", "share", "spent", "spend", "please", "should", "count", "spending",
+    "transaction", "transactions", "mark", "move", "make", "assign", "change", "exclude", "account", "about",
+    "dont", "does", "will", "want", "them", "they", "then", "than", "also", "just", "only", "over",
+}
+BANK_NOISE_TOKENS = {
+    "compra", "targ", "tarjeta", "pago", "recibo", "adeudo", "cargo", "abono", "transfer", "transferencia",
+    "visa", "mastercard", "debit", "credit", "card", "banco", "bank", "atm", "cash", "withdrawal",
+}
 
 
 def _resolve_category(name: str, categories: list[Category]) -> Category | None:
@@ -70,8 +81,30 @@ def _tx_line(tx: Transaction) -> dict:
     }
 
 
+def _dedupe_tokens(tokens: list[str]) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for token in tokens:
+        if token in seen:
+            continue
+        seen.add(token)
+        ordered.append(token)
+    return ordered
+
+
 def _search_tokens(message: str) -> list[str]:
-    return [t.lower() for t in TOKEN_RE.findall(message or "") if t.lower() not in STOP_WORDS][:8]
+    raw = [t.lower() for t in TOKEN_RE.findall(message or "") if t.lower() not in STOP_WORDS]
+    unique = _dedupe_tokens(raw)
+    distinctive = [t for t in unique if t not in BANK_NOISE_TOKENS]
+    ranked = sorted(distinctive or unique, key=len, reverse=True)
+    return ranked[:SEARCH_TOKEN_LIMIT]
+
+
+def _match_score(hay: str, tokens: list[str]) -> int:
+    hits = [token for token in tokens if token in hay]
+    if not hits:
+        return 0
+    return sum(len(token) * len(token) for token in hits)
 
 
 def _matching_transactions(db: Session, account_ids: list[int], tokens: list[str]) -> list[Transaction]:
@@ -82,17 +115,13 @@ def _matching_transactions(db: Session, account_ids: list[int], tokens: list[str
         .options(joinedload(Transaction.category), joinedload(Transaction.splits).joinedload(TransactionSplit.category))
         .filter(Transaction.account_id.in_(account_ids))
         .order_by(Transaction.booked_at.desc())
-        .limit(800)
+        .limit(SEARCH_SCAN_LIMIT)
         .all()
     )
-    hits = []
-    for tx in txs:
-        hay = f"{tx.merchant} {tx.raw_description}".lower()
-        if any(token in hay for token in tokens):
-            hits.append(tx)
-        if len(hits) >= SEARCH_TX_LIMIT:
-            break
-    return hits
+    scored = [(_match_score(f"{tx.merchant} {tx.raw_description}".lower(), tokens), tx) for tx in txs]
+    scored = [(score, tx) for score, tx in scored if score > 0]
+    scored.sort(key=lambda item: (item[0], item[1].booked_at), reverse=True)
+    return [tx for _, tx in scored[:SEARCH_TX_LIMIT]]
 
 
 def build_advisor_context(db: Session, household_id: int, year: int, month: int, message: str = "") -> dict:
@@ -168,8 +197,9 @@ def _system_prompt(context: dict) -> str:
         "Never create new categories. "
         "You CAN split one transaction into labeled portions. Bank amount stays unchanged; portion amounts must sum to the transaction amount (same sign). "
         "Use expense categories for portions that should count as spending (including money paid for a partner). "
-        "Use Transfer only when a portion should be excluded from spend. "
-        "Prefer matched_transactions when the user names a merchant from another month. "
+        "Use Transfer only when a portion should be excluded from spend, or when the user asks not to count a charge as spend. "
+        "matched_transactions is month-independent: when the user names a merchant or pastes a bank description, use those ids for recategorize/split even if the date is outside period. "
+        "Do not refuse a clear recategorize/split request only because the charge is outside the selected month. "
         'Reply with JSON only: {"reply":"<plain text for the user>","actions":[{"type":"recategorize","transaction_ids":[1],"category_name":"<name>","create_rule":true},{"type":"split","transaction_id":1,"portions":[{"amount":-521,"label":"Me","category_name":"Travel"},{"amount":-479,"label":"Wife","category_name":"Travel"}]}]}. '
         "Use actions only when the user clearly wants recategorization or a split; otherwise actions must be []. "
         f"Context: {json.dumps(context, separators=(',', ':'))}"
