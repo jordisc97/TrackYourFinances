@@ -97,7 +97,11 @@ async def _categorize_worker(stop: asyncio.Event) -> None:
     await asyncio.sleep(min(30, interval))
     while not stop.is_set():
         await asyncio.to_thread(categorize_all_households)
-        await asyncio.wait( [stop.wait()], timeout=interval )
+        slept = 0
+        while slept < interval and not stop.is_set():
+            step = min(5, interval - slept)
+            await asyncio.sleep(step)
+            slept += step
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name, lifespan=lifespan)

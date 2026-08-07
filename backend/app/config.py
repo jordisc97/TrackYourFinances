@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_model: str = "deepseek-v4-flash"
     categorize_interval_seconds: int = 900
+    categorize_llm_limit: int = 50
 
 
 @lru_cache

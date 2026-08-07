@@ -210,7 +210,7 @@ def register_employer_rules(db: Session, household_id: int, companies: list[str]
     return created, cleaned
 
 
-def classify_uncategorized(db: Session, household_id: int, account_ids: list[int], use_llm: bool = True) -> int:
+def classify_uncategorized(db: Session, household_id: int, account_ids: list[int], use_llm: bool = True, max_llm: int | None = None) -> int:
     rules = load_category_rules(db, household_id)
     categories_by_name = _category_by_name(db, household_id)
     known = load_known_commerces(db)
@@ -237,6 +237,8 @@ def classify_uncategorized(db: Session, household_id: int, account_ids: list[int
         if use_llm and tx.amount < 0:
             llm_queue.append(tx)
     if use_llm and llm_queue:
+        if max_llm is not None and max_llm >= 0:
+            llm_queue = llm_queue[:max_llm]
         updated += _classify_with_llm_batches(db, llm_queue, categories_by_name)
     updated += _assign_leftover_positives_as_transfer(db, household_id, account_ids)
     db.commit()

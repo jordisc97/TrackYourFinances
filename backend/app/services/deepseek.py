@@ -35,7 +35,10 @@ def _chat_completion(
     headers = {"Authorization": f"Bearer {settings.deepseek_api}", "Content-Type": "application/json"}
     body = {"model": settings.deepseek_model, "messages": messages, "temperature": temperature}
     with httpx.Client(timeout=timeout_seconds) as client:
-        response = client.post(url, headers=headers, json=body)
+        try:
+            response = client.post(url, headers=headers, json=body)
+        except httpx.HTTPError:
+            return None
     if response.status_code != 200:
         return None
     payload = response.json()

@@ -15,6 +15,7 @@ def categorize_all_households(db: Session | None = None) -> int:
     owns_session = db is None
     session = db or SessionLocal()
     use_llm = bool(settings.deepseek_api)
+    llm_limit = max(0, int(settings.categorize_llm_limit))
     total = 0
     households = session.query(Household.id).all()
     for (household_id,) in households:
@@ -24,7 +25,10 @@ def categorize_all_households(db: Session | None = None) -> int:
         pending = session.query(Transaction.id).filter(Transaction.account_id.in_(account_ids), Transaction.category_id.is_(None)).limit(1).first()
         if pending is None:
             continue
-        total += classify_uncategorized(session, household_id, account_ids, use_llm=use_llm)
+        # Rules/known first (no LLM), then a capped LLM pass so large imports drain over time.
+        total += classify_uncategorized(session, household_id, account_ids, use_llm=False)
+        if use_llm and llm_limit > 0:
+            total += classify_uncategorized(session, household_id, account_ids, use_llm=True, max_llm=llm_limit)
     if owns_session:
         session.close()
     if total:
