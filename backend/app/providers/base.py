@@ -30,6 +30,12 @@ class ProviderTransaction:
     currency: str
     description: str
     merchant: str
+    counterparty: str = ""
+    counterparty_iban: str = ""
+    location: str = ""
+    mcc: str | None = None
+    value_date: date | None = None
+    balance_after: float | None = None
 
 
 @dataclass
@@ -49,7 +55,7 @@ class BankProvider(Protocol):
     name: str
 
     def list_institutions(self, country: str) -> list[ProviderInstitution]: ...
-    def start_authorization(self, institution_id: str, state: str) -> AuthSession: ...
+    def start_authorization(self, institution_id: str, state: str, psu_type: str = "personal") -> AuthSession: ...
     def complete_authorization(self, code: str | None, state: str, session_id: str) -> AuthResult: ...
     def fetch_accounts(self, session_id: str) -> list[ProviderAccount]: ...
     def fetch_transactions(self, session_id: str, account_external_id: str, date_from: date | None = None) -> list[ProviderTransaction]: ...

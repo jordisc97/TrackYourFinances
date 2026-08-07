@@ -23,6 +23,14 @@ def _banks_redirect(status_value: str, message: str) -> RedirectResponse:
     return RedirectResponse(url=f"{frontend}/banks?bank_status={status_value}&bank_message={quote(message)}")
 
 
+def _start_auth(db: Session, connection: BankConnection, provider: BankProvider, psu_type: str = "personal") -> AuthStartOut:
+    session = provider.start_authorization(connection.institution_id, state=str(connection.id), psu_type=psu_type)
+    connection.session_id = session.session_id
+    connection.status = ConnectionStatus.pending.value
+    db.commit()
+    return AuthStartOut(authorization_url=session.authorization_url, connection_id=connection.id)
+
+
 def _connection_for_user(db: Session, connection_id: int, household_id: int) -> BankConnection:
     connection = db.query(BankConnection).filter(BankConnection.id == connection_id, BankConnection.household_id == household_id).first()
     if connection is None:
@@ -30,12 +38,7 @@ def _connection_for_user(db: Session, connection_id: int, household_id: int) -> 
     return connection
 
 
-def _start_auth(db: Session, connection: BankConnection, provider: BankProvider) -> AuthStartOut:
-    session = provider.start_authorization(connection.institution_id, state=str(connection.id))
-    connection.session_id = session.session_id
-    connection.status = ConnectionStatus.pending.value
-    db.commit()
-    return AuthStartOut(authorization_url=session.authorization_url, connection_id=connection.id)
+PSU_TYPES = {"personal", "business"}
 
 
 @router.get("/institutions", response_model=list[InstitutionOut])
@@ -45,12 +48,32 @@ def institutions(user: User = Depends(get_current_user)) -> list[InstitutionOut]
 
 
 @router.get("/connections", response_model=list[BankConnectionOut])
-def connections(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[BankConnection]:
-    return db.query(BankConnection).filter(BankConnection.household_id == user.household_id).all()
+def connections(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[BankConnectionOut]:
+    rows = (
+        db.query(BankConnection)
+        .filter(BankConnection.household_id == user.household_id)
+        .order_by(BankConnection.created_at.desc())
+        .all()
+    )
+    return [
+        BankConnectionOut(
+            id=row.id,
+            provider=row.provider,
+            institution_id=row.institution_id,
+            institution_name=row.institution_name,
+            status=row.status,
+            consent_expires_at=row.consent_expires_at,
+            last_synced_at=row.last_synced_at,
+            created_at=row.created_at,
+            is_mock=(row.session_id or "").startswith("mock-"),
+        )
+        for row in rows
+    ]
 
 
 @router.post("/connect/{institution_id}", response_model=AuthStartOut)
-def connect(institution_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> AuthStartOut:
+def connect(institution_id: str, psu_type: str = "personal", user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> AuthStartOut:
+    account_type = psu_type if psu_type in PSU_TYPES else "personal"
     provider = get_bank_provider()
     institutions = {i.id: i for i in provider.list_institutions(get_settings().bank_country)}
     institution = institutions.get(institution_id)
@@ -60,11 +83,16 @@ def connect(institution_id: str, user: User = Depends(get_current_user), db: Ses
     db.add(connection)
     db.commit()
     db.refresh(connection)
-    session = provider.start_authorization(connection.institution_id, state=str(connection.id))
-    connection.session_id = session.session_id
-    connection.status = ConnectionStatus.pending.value
-    db.commit()
-    return AuthStartOut(authorization_url=session.authorization_url, connection_id=connection.id)
+    try:
+        return _start_auth(db, connection, provider, account_type)
+    except RuntimeError as exc:
+        connection.status = ConnectionStatus.error.value
+        db.commit()
+        detail = str(exc)
+        if "REDIRECT_URI_NOT_ALLOWED" in detail or "Redirect URI not allowed" in detail:
+            redirect = get_settings().enable_banking_redirect_url
+            detail = f"Enable Banking rejected the redirect URL. In the Control Panel, add this exact Redirect URL, then retry: {redirect}"
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail) from exc
 
 
 @router.get("/callback")
@@ -84,7 +112,7 @@ def callback(
                 connection.status = ConnectionStatus.error.value
                 db.commit()
         detail = error_description or error
-        message = "Bank login was cancelled. You can retry from Banks, or import a CSV instead." if error == "access_denied" else f"Bank login failed: {detail}"
+        message = f"Bank login was cancelled ({detail}). Retry from Banks, or import a CSV." if error == "access_denied" else f"Bank login failed: {detail}"
         return _banks_redirect("failed", message)
     if not connection_ref or not connection_ref.isdigit():
         return _banks_redirect("failed", "Missing bank connection state.")
@@ -101,7 +129,6 @@ def callback(
     connection.session_id = result.session_id
     connection.consent_expires_at = result.consent_expires_at
     connection.status = ConnectionStatus.active.value
-    connection.last_synced_at = datetime.utcnow()
     db.commit()
     sync_connection(db, connection, provider)
     return _banks_redirect("connected", f"Connected {connection.institution_name}.")
@@ -115,5 +142,6 @@ def sync(connection_id: int, user: User = Depends(get_current_user), db: Session
 
 
 @router.post("/connections/{connection_id}/reconnect", response_model=AuthStartOut)
-def reconnect(connection_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> AuthStartOut:
-    return _start_auth(db, _connection_for_user(db, connection_id, user.household_id), get_bank_provider())
+def reconnect(connection_id: int, psu_type: str = "personal", user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> AuthStartOut:
+    account_type = psu_type if psu_type in PSU_TYPES else "personal"
+    return _start_auth(db, _connection_for_user(db, connection_id, user.household_id), get_bank_provider(), account_type)

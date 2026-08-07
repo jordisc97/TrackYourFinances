@@ -8,6 +8,7 @@ import jwt
 
 from app.config import get_settings
 from app.providers.base import AuthResult, AuthSession, ProviderAccount, ProviderInstitution, ProviderTransaction
+from app.services.tx_enrichment import resolve_counterparty, resolve_merchant
 
 V1_INSTITUTIONS = [
     ProviderInstitution(id="REVOLUT_ES", name="Revolut", country="ES"),
@@ -57,18 +58,19 @@ class EnableBankingProvider:
             return preferred
         return others[:20] or V1_INSTITUTIONS
 
-    def start_authorization(self, institution_id: str, state: str) -> AuthSession:
+    def start_authorization(self, institution_id: str, state: str, psu_type: str = "personal") -> AuthSession:
         if not self.configured:
             session_id = f"mock-{uuid4().hex}"
             redirect = f"{self.settings.enable_banking_redirect_url}?code=mock-code&state={state}"
             return AuthSession(authorization_url=redirect, session_id=session_id)
+        account_type = psu_type if psu_type in ("personal", "business") else "personal"
         valid_until = (datetime.now(timezone.utc) + timedelta(days=89)).strftime("%Y-%m-%dT%H:%M:%SZ")
         body = {
             "access": {"valid_until": valid_until, "balances": True, "transactions": True},
             "aspsp": {"name": institution_id, "country": self.settings.bank_country},
             "state": state,
             "redirect_url": self.settings.enable_banking_redirect_url,
-            "psu_type": "personal",
+            "psu_type": account_type,
         }
         response = httpx.post(f"{self.settings.enable_banking_base_url}/auth", json=body, headers=self._headers(), timeout=30.0)
         if response.status_code >= 400:
@@ -92,13 +94,13 @@ class EnableBankingProvider:
         consent_expires = datetime.fromisoformat(expires.replace("Z", "+00:00")).replace(tzinfo=None) if expires else datetime.utcnow() + timedelta(days=89)
         return AuthResult(session_id=session, accounts=accounts, consent_expires_at=consent_expires)
 
-    def _account_balance(self, account_uid: str) -> float:
+    def _account_balance(self, account_uid: str) -> float | None:
         response = httpx.get(f"{self.settings.enable_banking_base_url}/accounts/{account_uid}/balances", headers=self._headers(), timeout=30.0)
         if response.status_code >= 400:
-            return 0.0
+            return None
         balances = response.json().get("balances") or []
         if not balances:
-            return 0.0
+            return None
         amount_info = balances[0].get("balance_amount") or {}
         return float(amount_info.get("amount", 0))
 
@@ -116,7 +118,8 @@ class EnableBankingProvider:
             balance_amount = balances[0].get("balance_amount") or balances[0].get("amount") or {}
             amount = float(balance_amount.get("amount", 0)) if isinstance(balance_amount, dict) else float(balance_amount or 0)
         elif uid:
-            amount = self._account_balance(uid)
+            fetched = self._account_balance(uid)
+            amount = 0.0 if fetched is None else fetched
         account_id = item.get("account_id")
         iban = account_id.get("iban") if isinstance(account_id, dict) else item.get("iban")
         name = item.get("product") or item.get("details") or item.get("name") or "Account"
@@ -156,12 +159,20 @@ class EnableBankingProvider:
         params = {}
         if date_from:
             params["date_from"] = date_from.isoformat()
-        response = httpx.get(f"{self.settings.enable_banking_base_url}/accounts/{account_external_id}/transactions", params=params, headers=self._headers(), timeout=60.0)
-        response.raise_for_status()
+        url = f"{self.settings.enable_banking_base_url}/accounts/{account_external_id}/transactions"
+        response = httpx.get(url, params=params, headers=self._headers(), timeout=60.0)
+        if response.status_code == 429:
+            time.sleep(45.0)
+            response = httpx.get(url, params=params, headers=self._headers(), timeout=60.0)
+        if response.status_code == 429:
+            return []
+        if response.status_code >= 400:
+            raise RuntimeError(f"Enable Banking transactions failed ({response.status_code}): {response.text}")
         data = response.json()
         result = []
         for item in data.get("transactions", []):
             booked = item.get("booking_date") or item.get("value_date") or date.today().isoformat()
+            value_raw = item.get("value_date")
             amount_info = item.get("transaction_amount") or {}
             amount = abs(float(amount_info.get("amount", 0)))
             indicator = (item.get("credit_debit_indicator") or "").upper()
@@ -170,7 +181,15 @@ class EnableBankingProvider:
             # Sabadell remittance often contains "/DB/" as a bank-code token — do not treat that as debit.
             if indicator in ("DBIT", "DEBIT"):
                 amount = -amount
-            creditor = item.get("creditor") if isinstance(item.get("creditor"), dict) else {}
+            creditor = item.get("creditor") if isinstance(item.get("creditor"), dict) else None
+            debtor = item.get("debtor") if isinstance(item.get("debtor"), dict) else None
+            creditor_account = item.get("creditor_account") if isinstance(item.get("creditor_account"), dict) else None
+            debtor_account = item.get("debtor_account") if isinstance(item.get("debtor_account"), dict) else None
+            merchant, location = resolve_merchant(amount, description, creditor, debtor)
+            counterparty, counterparty_iban = resolve_counterparty(amount, creditor, debtor, creditor_account, debtor_account)
+            balance_info = item.get("balance_after_transaction") or {}
+            balance_after = float(balance_info["amount"]) if isinstance(balance_info, dict) and balance_info.get("amount") not in (None, "") else None
+            mcc = str(item.get("merchant_category_code") or "").strip() or None
             result.append(
                 ProviderTransaction(
                     external_id=str(item.get("entry_reference") or item.get("transaction_id") or uuid4().hex),
@@ -178,7 +197,13 @@ class EnableBankingProvider:
                     amount=amount,
                     currency=amount_info.get("currency", "EUR"),
                     description=description,
-                    merchant=creditor.get("name") or "",
+                    merchant=merchant,
+                    counterparty=counterparty,
+                    counterparty_iban=counterparty_iban,
+                    location=location,
+                    mcc=mcc,
+                    value_date=date.fromisoformat(str(value_raw)[:10]) if value_raw else None,
+                    balance_after=balance_after,
                 )
             )
         return result

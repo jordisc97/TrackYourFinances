@@ -1,14 +1,26 @@
 export type User = { id: number; email: string; display_name: string; role: string; household_id: number };
 export type Household = { id: number; name: string; invite_code: string; location?: string };
-export type Account = { id: number; name: string; institution: string; currency: string; account_type: string; source: string; is_active: boolean; latest_balance: number | null };
+export type Account = { id: number; name: string; institution: string; currency: string; account_type: string; source: string; is_active: boolean; iban: string | null; latest_balance: number | null };
+export type FlowNode = {
+  id: string;
+  kind: "income" | "account" | "expenses" | string;
+  label: string;
+  amount: number;
+  account_id?: number | null;
+  iban?: string | null;
+};
+export type FlowEdge = { source: string; target: string; amount: number; kind: "income" | "spend" | "transfer" | string };
+export type AccountFlow = { year: number; month: number; nodes: FlowNode[]; edges: FlowEdge[] };
 export type Category = { id: number; name: string; kind: string; color: string };
 export type TransactionSplit = { id: number; amount: number; label: string; category_id: number | null; category_name: string | null; category_kind: string | null; sort_order: number };
 export type Transaction = {
   id: number; account_id: number; category_id: number | null; booked_at: string; amount: number; currency: string;
-  raw_description: string; merchant: string; source: string; category_name: string | null; category_kind: string | null; splits?: TransactionSplit[];
+  raw_description: string; merchant: string; counterparty?: string; counterparty_iban?: string; location?: string;
+  mcc?: string | null; value_date?: string | null; balance_after?: number | null;
+  source: string; category_name: string | null; category_kind: string | null; splits?: TransactionSplit[];
 };
 export type Institution = { id: string; name: string; country: string; logo: string | null };
-export type BankConnection = { id: number; provider: string; institution_id: string; institution_name: string; status: string; consent_expires_at: string | null; last_synced_at: string | null };
+export type BankConnection = { id: number; provider: string; institution_id: string; institution_name: string; status: string; consent_expires_at: string | null; last_synced_at: string | null; created_at: string; is_mock: boolean };
 export type MonthlyStrategy = { year: number; month: number; save_pct: number; spend_pct: number; invest_pct: number };
 export type InvestmentMonthRow = {
   year: number; month: number; label: string;
@@ -85,8 +97,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const detail = await response.text();
     let message = detail || response.statusText;
     try {
-      const parsed = JSON.parse(detail) as { detail?: string };
-      if (parsed.detail) message = parsed.detail;
+      const parsed = JSON.parse(detail) as { detail?: unknown };
+      if (typeof parsed.detail === "string") message = parsed.detail;
+      else if (parsed.detail != null) message = JSON.stringify(parsed.detail);
     } catch {
       // keep raw text
     }
@@ -129,6 +142,10 @@ export const api = {
     request<{ year: number; month: number; net_worth: number }>(`/api/dashboard/opening-wealth?year=${year}&month=${month}`, { method: "PUT", body: JSON.stringify({ net_worth }) }),
   accounts: () => request<Account[]>("/api/accounts"),
   createAccount: (body: object) => request<Account>("/api/accounts", { method: "POST", body: JSON.stringify(body) }),
+  updateAccount: (accountId: number, body: { name?: string; institution?: string; account_type?: string; iban?: string | null; is_active?: boolean }) =>
+    request<Account>(`/api/accounts/${accountId}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteAccount: (accountId: number) => request<Account>(`/api/accounts/${accountId}`, { method: "DELETE" }),
+  accountFlow: (year: number, month: number) => request<AccountFlow>(`/api/accounts/flow?year=${year}&month=${month}`),
   addBalance: (accountId: number, amount: number, snapshot_date?: string) =>
     request(`/api/accounts/${accountId}/balances`, { method: "POST", body: JSON.stringify({ amount, snapshot_date }) }),
   categories: () => request<Category[]>("/api/categories"),
@@ -162,9 +179,9 @@ export const api = {
     uploadCsv("/api/import/investment-csv", accountId, file, overwrite),
   institutions: () => request<Institution[]>("/api/banking/institutions"),
   connections: () => request<BankConnection[]>("/api/banking/connections"),
-  connect: (institutionId: string) =>
-    request<{ authorization_url: string; connection_id: number }>(`/api/banking/connect/${encodeURIComponent(institutionId)}`, { method: "POST" }),
+  connect: (institutionId: string, psuType: "personal" | "business" = "personal") =>
+    request<{ authorization_url: string; connection_id: number }>(`/api/banking/connect/${encodeURIComponent(institutionId)}?psu_type=${psuType}`, { method: "POST" }),
   sync: (connectionId: number) => request<{ imported: number; status: string }>(`/api/banking/connections/${connectionId}/sync`, { method: "POST" }),
-  reconnect: (connectionId: number) =>
-    request<{ authorization_url: string; connection_id: number }>(`/api/banking/connections/${connectionId}/reconnect`, { method: "POST" }),
+  reconnect: (connectionId: number, psuType: "personal" | "business" = "personal") =>
+    request<{ authorization_url: string; connection_id: number }>(`/api/banking/connections/${connectionId}/reconnect?psu_type=${psuType}`, { method: "POST" }),
 };

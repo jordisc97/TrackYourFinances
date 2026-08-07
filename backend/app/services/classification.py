@@ -4,7 +4,8 @@ from datetime import datetime
 from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
-from app.models import Category, CategoryRule, KnownCommerce, Transaction
+from app.models import Account, Category, CategoryRule, KnownCommerce, Transaction
+from app.services.accounts_helpers import match_own_account_id
 from app.services.deepseek import LLM_RULE_PRIORITY, classify_batch_with_deepseek, classify_with_deepseek
 
 LLM_BATCH_SIZE = 25
@@ -13,6 +14,18 @@ INCOME_CATEGORY_NAME = "Income"
 TRANSFER_CATEGORY_NAME = "Transfer"
 INCOME_KIND = "income"
 EXPENSE_KIND = "expense"
+
+
+def load_household_accounts(db: Session, household_id: int) -> list[Account]:
+    return db.query(Account).filter(Account.household_id == household_id, Account.is_active.is_(True)).all()
+
+
+def match_own_account_transfer(db: Session, household_id: int, description: str, merchant: str, exclude_account_id: int | None = None, accounts: list[Account] | None = None) -> int | None:
+    active = accounts if accounts is not None else load_household_accounts(db, household_id)
+    if match_own_account_id(active, description, merchant, exclude_account_id) is None:
+        return None
+    transfer = db.query(Category).filter(Category.household_id == household_id, Category.name == TRANSFER_CATEGORY_NAME).first()
+    return transfer.id if transfer is not None else None
 
 
 def load_category_rules(db: Session, household_id: int) -> list[CategoryRule]:
@@ -74,6 +87,11 @@ def remember_commerce(db: Session, merchant: str, description: str, category_nam
         return
     display = (merchant or description or "").strip()[:255]
     existing = db.query(KnownCommerce).filter(KnownCommerce.normalized_name == key).first()
+    if existing is None:
+        for pending in db.new:
+            if isinstance(pending, KnownCommerce) and pending.normalized_name == key:
+                existing = pending
+                break
     if existing is not None:
         existing.category_name = category_name
         existing.display_name = display or existing.display_name
@@ -105,8 +123,12 @@ def _persist_llm_rule(db: Session, category_id: int, merchant: str, description:
     db.add(CategoryRule(category_id=category_id, pattern=pattern, match_type="contains", priority=LLM_RULE_PRIORITY))
 
 
-def classify_transaction(db: Session, household_id: int, tx: Transaction, rules: list[CategoryRule] | None = None, use_llm: bool = True) -> Transaction:
+def classify_transaction(db: Session, household_id: int, tx: Transaction, rules: list[CategoryRule] | None = None, use_llm: bool = True, accounts: list[Account] | None = None) -> Transaction:
     if tx.category_id is not None:
+        return tx
+    own_transfer_id = match_own_account_transfer(db, household_id, tx.raw_description, tx.merchant, tx.account_id, accounts)
+    if own_transfer_id is not None:
+        tx.category_id = own_transfer_id
         return tx
     active_rules = rules if rules is not None else load_category_rules(db, household_id)
     category_id = match_category_with_rules(active_rules, tx.raw_description, tx.merchant, tx.amount)
@@ -192,10 +214,16 @@ def classify_uncategorized(db: Session, household_id: int, account_ids: list[int
     rules = load_category_rules(db, household_id)
     categories_by_name = _category_by_name(db, household_id)
     known = load_known_commerces(db)
+    accounts = load_household_accounts(db, household_id)
     txs = db.query(Transaction).filter(Transaction.account_id.in_(account_ids), Transaction.category_id.is_(None)).all()
     updated = 0
     llm_queue: list[Transaction] = []
     for tx in txs:
+        own_transfer_id = match_own_account_transfer(db, household_id, tx.raw_description, tx.merchant, tx.account_id, accounts)
+        if own_transfer_id is not None:
+            tx.category_id = own_transfer_id
+            updated += 1
+            continue
         category_id = match_category_with_rules(rules, tx.raw_description, tx.merchant, tx.amount)
         if category_id is not None:
             tx.category_id = category_id

@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { api, type Account } from "../api";
+import { api, type Account, type AccountFlow } from "../api";
+import { MoneyFlowGraph } from "../components/MoneyFlowGraph";
 import { euro, parseEmployerNames } from "../format";
 
 const ACCOUNT_TYPE_INVESTMENT = "investment";
@@ -8,11 +9,41 @@ const DEFAULT_SNP_INSTITUTION = "Index DCA";
 const IMPORT_MODE_APPEND = "append";
 const IMPORT_MODE_REPLACE = "replace";
 const EMPLOYER_PLACEHOLDER = "PayPal, HP, …";
+const FLOW_MONTH_LOOKBACK = 24;
+const FLOW_MONTH_LOCALE = "en-US";
+
+type MonthOption = { year: number; month: number; value: string; label: string };
+
+function buildFlowMonthOptions(): MonthOption[] {
+  const options: MonthOption[] = [];
+  const cursor = new Date();
+  cursor.setDate(1);
+  for (let i = 0; i < FLOW_MONTH_LOOKBACK; i++) {
+    const year = cursor.getFullYear();
+    const month = cursor.getMonth() + 1;
+    options.push({
+      year,
+      month,
+      value: `${year}-${String(month).padStart(2, "0")}`,
+      label: cursor.toLocaleDateString(FLOW_MONTH_LOCALE, { month: "short", year: "numeric" }),
+    });
+    cursor.setMonth(cursor.getMonth() - 1);
+  }
+  return options;
+}
+
+const FLOW_MONTH_OPTIONS = buildFlowMonthOptions();
+
+function maskIban(iban: string | null): string {
+  if (!iban) return "—";
+  return iban.length <= 4 ? iban : `…${iban.slice(-4)}`;
+}
 
 export function AccountsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [name, setName] = useState("");
   const [institution, setInstitution] = useState("");
+  const [iban, setIban] = useState("");
   const [accountType, setAccountType] = useState("checking");
   const [employerNames, setEmployerNames] = useState("");
   const [balanceAccountId, setBalanceAccountId] = useState<number | "">("");
@@ -21,11 +52,25 @@ export function AccountsPage() {
   const [investFile, setInvestFile] = useState<File | null>(null);
   const [investMode, setInvestMode] = useState<typeof IMPORT_MODE_APPEND | typeof IMPORT_MODE_REPLACE>(IMPORT_MODE_APPEND);
   const [message, setMessage] = useState("");
+  const [flowMonth, setFlowMonth] = useState(FLOW_MONTH_OPTIONS[0]?.value ?? "");
+  const [flow, setFlow] = useState<AccountFlow | null>(null);
+  const [flowLoading, setFlowLoading] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editIban, setEditIban] = useState("");
 
   const investmentAccounts = accounts.filter((account) => account.account_type === ACCOUNT_TYPE_INVESTMENT);
   const selectedInvestAccount = investmentAccounts.find((account) => account.id === investAccountId);
+  const selectedFlowMonth = FLOW_MONTH_OPTIONS.find((option) => option.value === flowMonth) ?? FLOW_MONTH_OPTIONS[0];
 
-  async function load() {
+  async function loadFlow(year: number, month: number) {
+    setFlowLoading(true);
+    const next = await api.accountFlow(year, month);
+    setFlow(next);
+    setFlowLoading(false);
+  }
+
+  async function loadAccounts() {
     const list = await api.accounts();
     setAccounts(list);
     if (!balanceAccountId && list[0]) setBalanceAccountId(list[0].id);
@@ -35,19 +80,34 @@ export function AccountsPage() {
   }
 
   useEffect(() => {
-    load().catch((err: Error) => setMessage(err.message));
+    loadAccounts().catch((err: Error) => setMessage(err.message));
   }, []);
+
+  useEffect(() => {
+    if (!selectedFlowMonth) return;
+    setFlowLoading(true);
+    api.accountFlow(selectedFlowMonth.year, selectedFlowMonth.month)
+      .then(setFlow)
+      .catch((err: Error) => setMessage(err.message))
+      .then(() => setFlowLoading(false));
+  }, [flowMonth]);
+
+  async function refreshAll() {
+    await loadAccounts();
+    if (selectedFlowMonth) await loadFlow(selectedFlowMonth.year, selectedFlowMonth.month);
+  }
 
   async function createAccount(event: FormEvent) {
     event.preventDefault();
-    await api.createAccount({ name, institution, account_type: accountType, source: "manual" });
+    await api.createAccount({ name, institution, account_type: accountType, source: "manual", iban: iban || null });
     const companies = parseEmployerNames(employerNames);
     const employerNote = companies.length ? ` Employers saved: ${(await api.registerEmployers(companies)).companies.join(", ")}.` : "";
     setName("");
     setInstitution("");
+    setIban("");
     setEmployerNames("");
     setMessage(`Account created.${employerNote}`);
-    await load();
+    await refreshAll();
   }
 
   async function createSnpAccount() {
@@ -59,7 +119,7 @@ export function AccountsPage() {
     });
     setInvestAccountId(created.id);
     setMessage(`Created “${created.name}”. Import investment history below.`);
-    await load();
+    await refreshAll();
   }
 
   async function saveBalance(event: FormEvent) {
@@ -68,7 +128,7 @@ export function AccountsPage() {
     await api.addBalance(Number(balanceAccountId), Number(balanceAmount));
     setBalanceAmount("");
     setMessage("Balance snapshot saved");
-    await load();
+    await refreshAll();
   }
 
   async function importInvestmentHistory(event: FormEvent) {
@@ -88,28 +148,108 @@ export function AccountsPage() {
     setMessage(`${parts.join(" · ")} → ${selectedInvestAccount?.name ?? "account"}`);
     setInvestFile(null);
     setInvestMode(IMPORT_MODE_APPEND);
-    await load();
+    await refreshAll();
+  }
+
+  function startEdit(account: Account) {
+    setEditingId(account.id);
+    setEditName(account.name);
+    setEditIban(account.iban ?? "");
+  }
+
+  async function saveEdit(accountId: number) {
+    await api.updateAccount(accountId, { name: editName, iban: editIban.trim() ? editIban : null });
+    setEditingId(null);
+    setMessage("Account updated. Matching transfers reclassified.");
+    await api.classifyTransactions();
+    await refreshAll();
+  }
+
+  async function saveGraphIban(accountId: number, nextIban: string | null) {
+    await api.updateAccount(accountId, { iban: nextIban });
+    setMessage("IBAN saved. Matching transfers reclassified.");
+    await api.classifyTransactions();
+    await refreshAll();
+  }
+
+  async function quickAddAccount(input: { name: string; iban: string | null; account_type: string }) {
+    await api.createAccount({ name: input.name, iban: input.iban, account_type: input.account_type, source: "manual" });
+    setMessage(`Added “${input.name}”.`);
+    await refreshAll();
+  }
+
+  async function removeAccount(accountId: number, label: string) {
+    const confirmed = window.confirm(`Remove “${label}” from your accounts? It will leave the money-flow graph.`);
+    if (!confirmed) return;
+    await api.deleteAccount(accountId);
+    if (editingId === accountId) setEditingId(null);
+    if (balanceAccountId === accountId) setBalanceAccountId("");
+    if (investAccountId === accountId) setInvestAccountId("");
+    setMessage(`Removed “${label}”.`);
+    await refreshAll();
   }
 
   return (
     <div>
       <section className="hero">
         <h1>Accounts</h1>
-        <p>Manual balances for brokers and anything Open Banking does not cover yet.</p>
+        <p>Add or remove accounts on the graph. Set IBANs so transfers between your own accounts stay out of expenses. Edge thickness is the link amount.</p>
       </section>
+
+      <div className="panel flow-panel">
+        <div className="flow-panel-head">
+          <h2>Money flow</h2>
+          <label className="flow-month">
+            <span className="muted">Month</span>
+            <select value={flowMonth} onChange={(e) => setFlowMonth(e.target.value)}>
+              {FLOW_MONTH_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <MoneyFlowGraph
+          flow={flow}
+          loading={flowLoading}
+          onSaveIban={(accountId, nextIban) => saveGraphIban(accountId, nextIban).catch((err: Error) => { setMessage(err.message); throw err; })}
+          onAddAccount={(input) => quickAddAccount(input).catch((err: Error) => { setMessage(err.message); throw err; })}
+          onRemoveAccount={(accountId, label) => removeAccount(accountId, label).catch((err: Error) => { setMessage(err.message); throw err; })}
+        />
+      </div>
 
       <div className="grid two">
         <div className="panel">
           <h2>Balances</h2>
           <table className="table">
-            <thead><tr><th>Name</th><th>Institution</th><th>Type</th><th>Balance</th></tr></thead>
+            <thead><tr><th>Name</th><th>IBAN</th><th>Institution</th><th>Type</th><th>Balance</th><th /></tr></thead>
             <tbody>
               {accounts.map((a) => (
                 <tr key={a.id}>
-                  <td>{a.name}</td>
-                  <td>{a.institution || "—"}</td>
-                  <td>{a.account_type}</td>
-                  <td>{euro.format(a.latest_balance ?? 0)}</td>
+                  {editingId === a.id ? (
+                    <>
+                      <td><input value={editName} onChange={(e) => setEditName(e.target.value)} /></td>
+                      <td><input value={editIban} onChange={(e) => setEditIban(e.target.value)} placeholder="ES00…" /></td>
+                      <td>{a.institution || "—"}</td>
+                      <td>{a.account_type}</td>
+                      <td>{euro.format(a.latest_balance ?? 0)}</td>
+                      <td className="flow-edit-actions">
+                        <button type="button" onClick={() => saveEdit(a.id).catch((err: Error) => setMessage(err.message))}>Save</button>
+                        <button type="button" className="secondary" onClick={() => setEditingId(null)}>Cancel</button>
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      <td>{a.name}</td>
+                      <td className="muted">{maskIban(a.iban)}</td>
+                      <td>{a.institution || "—"}</td>
+                      <td>{a.account_type}</td>
+                      <td>{euro.format(a.latest_balance ?? 0)}</td>
+                      <td className="flow-edit-actions">
+                        <button type="button" className="secondary" onClick={() => startEdit(a)}>Edit</button>
+                        <button type="button" className="secondary" onClick={() => removeAccount(a.id, a.name).catch((err: Error) => setMessage(err.message))}>Remove</button>
+                      </td>
+                    </>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -119,6 +259,7 @@ export function AccountsPage() {
           <h2>Add manual account</h2>
           <form className="form" onSubmit={(e) => createAccount(e).catch((err: Error) => setMessage(err.message))}>
             <label><div className="muted">Name</div><input value={name} onChange={(e) => setName(e.target.value)} required /></label>
+            <label><div className="muted">IBAN</div><input value={iban} onChange={(e) => setIban(e.target.value)} placeholder="ES91 2100 …" /></label>
             <label><div className="muted">Institution</div><input value={institution} onChange={(e) => setInstitution(e.target.value)} placeholder="Trade Republic, Coinbase…" /></label>
             <label>
               <div className="muted">Type</div>

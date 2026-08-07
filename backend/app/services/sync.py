@@ -23,6 +23,7 @@ def sync_connection(db: Session, connection: BankConnection, provider: BankProvi
         return 0
     accounts = provider.fetch_accounts(connection.session_id)
     imported = 0
+    synced_accounts: list[Account] = []
     for pa in accounts:
         account = (
             db.query(Account)
@@ -43,13 +44,32 @@ def sync_connection(db: Session, connection: BankConnection, provider: BankProvi
             )
             db.add(account)
             db.flush()
+        else:
+            account.bank_connection_id = connection.id
+            account.iban = pa.iban or account.iban
+            account.name = f"{connection.institution_name} {pa.name}"
         upsert_balance(db, account, pa.balance)
-        for pt in provider.fetch_transactions(connection.session_id, pa.external_id):
+        synced_accounts.append(account)
+    connection.last_synced_at = datetime.utcnow()
+    connection.status = ConnectionStatus.active.value
+    if connection.consent_expires_at and connection.consent_expires_at < datetime.utcnow():
+        connection.status = ConnectionStatus.expired.value
+    db.commit()
+    for account in synced_accounts:
+        if not account.external_id:
+            continue
+        for pt in provider.fetch_transactions(connection.session_id, account.external_id):
             exists = db.query(Transaction).filter(Transaction.account_id == account.id, Transaction.external_id == pt.external_id).first()
             if exists:
                 exists.amount = pt.amount
                 exists.raw_description = pt.description or exists.raw_description
                 exists.merchant = pt.merchant or exists.merchant
+                exists.counterparty = pt.counterparty or exists.counterparty
+                exists.counterparty_iban = pt.counterparty_iban or exists.counterparty_iban
+                exists.location = pt.location or exists.location
+                exists.mcc = pt.mcc or exists.mcc
+                exists.value_date = pt.value_date or exists.value_date
+                exists.balance_after = pt.balance_after if pt.balance_after is not None else exists.balance_after
                 continue
             tx = Transaction(
                 account_id=account.id,
@@ -58,15 +78,18 @@ def sync_connection(db: Session, connection: BankConnection, provider: BankProvi
                 currency=pt.currency,
                 raw_description=pt.description,
                 merchant=pt.merchant or "",
+                counterparty=pt.counterparty or "",
+                counterparty_iban=pt.counterparty_iban or "",
+                location=pt.location or "",
+                mcc=pt.mcc,
+                value_date=pt.value_date,
+                balance_after=pt.balance_after,
                 external_id=pt.external_id,
                 source=TransactionSource.bank.value,
             )
-            classify_transaction(db, connection.household_id, tx)
+            classify_transaction(db, connection.household_id, tx, use_llm=False)
             db.add(tx)
             imported += 1
     connection.last_synced_at = datetime.utcnow()
-    connection.status = ConnectionStatus.active.value
-    if connection.consent_expires_at and connection.consent_expires_at < datetime.utcnow():
-        connection.status = ConnectionStatus.expired.value
     db.commit()
     return imported

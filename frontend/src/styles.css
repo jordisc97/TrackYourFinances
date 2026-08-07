@@ -484,6 +484,19 @@ select option, select optgroup {
   animation: rise 600ms ease both;
 }
 .auth-card h1 { font-family: var(--display); margin: 0 0 0.35rem; }
+.bank-psu { display: grid; gap: 0.35rem; margin: 0 0 1rem; max-width: 16rem; }
+.legal-page { min-height: 100vh; padding: 1.25rem 1.5rem 3rem; }
+.legal-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 1px solid var(--line);
+}
+.legal-nav { display: flex; gap: 1rem; color: var(--muted); }
+.legal-nav a:hover { color: var(--ink); }
+.legal-body { width: min(42rem, 100%); margin: 0 auto; animation: rise 500ms ease both; }
+.legal-body h1 { font-family: var(--display); margin: 0 0 0.35rem; letter-spacing: -0.02em; }
+.legal-body h2 { margin: 1.6rem 0 0.45rem; font-size: 1.05rem; }
+.legal-body p { margin: 0; line-height: 1.55; color: var(--ink); }
+.legal-body .muted a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 .tabs { display: flex; gap: 0.5rem; margin: 1rem 0 1.25rem; }
 .tabs button { background: transparent; color: var(--muted); border: 1px solid transparent; }
 .tabs button.active { color: var(--ink); border-color: var(--line); background: var(--input); }
@@ -820,3 +833,215 @@ select option, select optgroup {
   .advisor-scroller { max-height: 260px; }
   .advisor-compose { grid-template-columns: 1fr; }
 }
+
+.flow-panel { margin-bottom: 1.25rem; position: relative; overflow: hidden; }
+.flow-panel::before {
+  content: "";
+  position: absolute;
+  inset: -30% 35% auto -15%;
+  height: 70%;
+  background: radial-gradient(circle, rgba(46, 196, 182, 0.1), transparent 68%);
+  pointer-events: none;
+}
+.flow-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+  position: relative;
+}
+.flow-panel-head h2 { margin: 0; }
+.flow-month { display: flex; align-items: center; gap: 0.5rem; }
+.flow-month select { min-width: 9rem; }
+.flow-graph { position: relative; }
+.flow-toolbar {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+.flow-zones {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.5rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-align: center;
+}
+.flow-add-toggle {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+.flow-quick-add {
+  display: grid;
+  grid-template-columns: 1.4fr 1.4fr auto auto;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  padding: 0.65rem;
+  border-radius: 12px;
+  border: 1px solid rgba(46, 196, 182, 0.25);
+  background: rgba(46, 196, 182, 0.06);
+}
+.flow-quick-add input,
+.flow-quick-add select {
+  min-width: 0;
+  padding: 0.4rem 0.55rem;
+  font-size: 0.85rem;
+}
+.flow-quick-add button { padding: 0.4rem 0.85rem; font-size: 0.85rem; }
+.flow-node-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+}
+.flow-remove {
+  flex: 0 0 auto;
+  width: 1.4rem;
+  height: 1.4rem;
+  padding: 0;
+  border-radius: 999px;
+  background: rgba(251, 113, 133, 0.12);
+  color: var(--spend);
+  font-size: 1rem;
+  line-height: 1;
+  box-shadow: none;
+}
+.flow-remove:hover {
+  background: rgba(251, 113, 133, 0.22);
+  transform: none;
+  box-shadow: none;
+}
+.flow-remove:disabled { opacity: 0.5; }
+.flow-svg {
+  width: 100%;
+  height: auto;
+  min-height: 320px;
+  overflow: visible;
+  background:
+    radial-gradient(ellipse at 20% 50%, rgba(74, 222, 128, 0.05), transparent 45%),
+    radial-gradient(ellipse at 80% 50%, rgba(251, 113, 133, 0.05), transparent 45%),
+    linear-gradient(180deg, rgba(18, 24, 32, 0.35), transparent 60%);
+  border-radius: 16px;
+  border: 1px solid rgba(139, 151, 168, 0.16);
+}
+.flow-edges { pointer-events: stroke; }
+.flow-link { pointer-events: none; }
+.flow-edge {
+  pointer-events: stroke;
+  cursor: pointer;
+  transition: stroke-width 160ms ease, stroke-opacity 160ms ease;
+}
+.flow-hub {
+  filter: drop-shadow(0 0 6px currentColor);
+  opacity: 0.95;
+}
+.flow-node rect {
+  fill: rgba(14, 18, 26, 0.88);
+  stroke: rgba(139, 151, 168, 0.28);
+  stroke-width: 1;
+}
+.flow-node-income rect { stroke: rgba(74, 222, 128, 0.55); fill: rgba(74, 222, 128, 0.07); }
+.flow-node-expenses rect { stroke: rgba(251, 113, 133, 0.55); fill: rgba(251, 113, 133, 0.07); }
+.flow-foreign { overflow: visible; }
+.flow-node-account {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 0.55rem 0.65rem;
+  border-radius: 14px;
+  border: 1px solid rgba(46, 196, 182, 0.45);
+  background: linear-gradient(160deg, rgba(22, 32, 40, 0.96), rgba(14, 18, 26, 0.94));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 0 24px rgba(46, 196, 182, 0.08);
+  color: var(--ink);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-family: var(--font);
+}
+.flow-node-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.flow-node-label {
+  fill: var(--ink);
+  font-size: 13px;
+  font-family: var(--font);
+  font-weight: 600;
+}
+.flow-node-amount {
+  fill: var(--muted);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-family: var(--font);
+  font-variant-numeric: tabular-nums;
+}
+.flow-iban-chip {
+  margin-top: 0.15rem;
+  width: 100%;
+  padding: 0.28rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid rgba(46, 196, 182, 0.28);
+  background: rgba(46, 196, 182, 0.08);
+  color: var(--accent);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.flow-iban-chip:hover {
+  background: rgba(46, 196, 182, 0.16);
+  transform: none;
+  box-shadow: none;
+}
+.flow-iban-form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.25rem;
+  margin-top: 0.15rem;
+}
+.flow-iban-form input {
+  min-width: 0;
+  padding: 0.25rem 0.4rem;
+  font-size: 0.68rem;
+  border-radius: 8px;
+}
+.flow-iban-form button {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.65rem;
+  border-radius: 8px;
+}
+.flow-tooltip {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  padding: 0.4rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(16, 20, 28, 0.95);
+  border: 1px solid rgba(139, 151, 168, 0.25);
+  color: var(--ink);
+  font-size: 0.8rem;
+  pointer-events: none;
+  white-space: nowrap;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+  z-index: 2;
+  backdrop-filter: blur(8px);
+}
+.flow-empty-edges { margin: 0.5rem 0 0; font-size: 0.85rem; }
+.flow-edit-actions { display: flex; gap: 0.35rem; }
+@media (max-width: 800px) {
+  .flow-zones { font-size: 0.68rem; }
+  .flow-svg { min-height: 260px; }
+  .flow-toolbar { grid-template-columns: 1fr; }
+  .flow-quick-add { grid-template-columns: 1fr; }
+}
+

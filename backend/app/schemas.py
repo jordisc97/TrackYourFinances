@@ -55,6 +55,15 @@ class AccountCreate(BaseModel):
     currency: str = "EUR"
     account_type: str = "checking"
     source: str = "manual"
+    iban: str | None = None
+
+
+class AccountUpdate(BaseModel):
+    name: str | None = None
+    institution: str | None = None
+    account_type: str | None = None
+    iban: str | None = None
+    is_active: bool | None = None
 
 
 class AccountOut(BaseModel):
@@ -65,8 +74,32 @@ class AccountOut(BaseModel):
     account_type: str
     source: str
     is_active: bool
+    iban: str | None = None
     latest_balance: float | None = None
     model_config = {"from_attributes": True}
+
+
+class FlowNodeOut(BaseModel):
+    id: str
+    kind: str
+    label: str
+    amount: float
+    account_id: int | None = None
+    iban: str | None = None
+
+
+class FlowEdgeOut(BaseModel):
+    source: str
+    target: str
+    amount: float
+    kind: str
+
+
+class AccountFlowOut(BaseModel):
+    year: int
+    month: int
+    nodes: list[FlowNodeOut]
+    edges: list[FlowEdgeOut]
 
 
 class BalanceIn(BaseModel):
@@ -110,6 +143,12 @@ class TransactionOut(BaseModel):
     currency: str
     raw_description: str
     merchant: str
+    counterparty: str = ""
+    counterparty_iban: str = ""
+    location: str = ""
+    mcc: str | None = None
+    value_date: date | None = None
+    balance_after: float | None = None
     source: str
     category_name: str | None = None
     category_kind: str | None = None
@@ -228,6 +267,8 @@ class BankConnectionOut(BaseModel):
     status: str
     consent_expires_at: datetime | None
     last_synced_at: datetime | None
+    created_at: datetime
+    is_mock: bool = False
     model_config = {"from_attributes": True}
 
 

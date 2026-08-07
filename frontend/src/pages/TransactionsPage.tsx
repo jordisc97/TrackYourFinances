@@ -442,7 +442,12 @@ function FragmentRow({
       <tr data-split-anchor={tx.id}>
         <td>{tx.booked_at}</td>
         <td>
-          {tx.merchant || tx.raw_description || "—"}
+          <div>{tx.merchant || tx.raw_description || "—"}</div>
+          {(tx.location || (tx.counterparty && tx.counterparty !== tx.merchant)) && (
+            <div className="muted" style={{ fontSize: "0.85em" }}>
+              {[tx.location, tx.counterparty && tx.counterparty !== tx.merchant ? (tx.amount < 0 ? `To ${tx.counterparty}` : `From ${tx.counterparty}`) : null].filter(Boolean).join(" · ")}
+            </div>
+          )}
           {tx.splits && tx.splits.length > 0 && !splitting && <span className="pill" style={{ marginLeft: "0.4rem" }}>Split</span>}
         </td>
         <td className={amountClass(ledgerAmountTone(tx))}>{euro.format(ledgerDisplayAmount(tx))}</td>

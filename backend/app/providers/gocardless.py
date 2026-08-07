@@ -6,6 +6,7 @@ import httpx
 
 from app.config import get_settings
 from app.providers.base import AuthResult, AuthSession, ProviderAccount, ProviderInstitution, ProviderTransaction
+from app.services.tx_enrichment import resolve_merchant
 
 MOCK_INSTITUTIONS = [
     ProviderInstitution(id="SANDBOXFINANCE_SFIN0000", name="Sandbox Finance", country="ES"),
@@ -54,7 +55,7 @@ class GoCardlessProvider:
         items = response.json()
         return [ProviderInstitution(id=item["id"], name=item.get("name", item["id"]), country=country, logo=item.get("logo")) for item in items]
 
-    def start_authorization(self, institution_id: str, state: str) -> AuthSession:
+    def start_authorization(self, institution_id: str, state: str, psu_type: str = "personal") -> AuthSession:
         if not self.configured:
             session_id = f"mock-{uuid4().hex}"
             redirect = f"{self.settings.gc_redirect_url}?ref={state}"
@@ -115,13 +116,36 @@ class GoCardlessProvider:
         amount_info = item.get("transactionAmount") or {}
         amount = float(amount_info.get("amount", 0))
         booked = item.get("bookingDate") or item.get("valueDate") or date.today().isoformat()
+        value_raw = item.get("valueDate")
         description = item.get("remittanceInformationUnstructured") or ""
         if not description:
             remittance = item.get("remittanceInformationUnstructuredArray") or []
             description = " ".join(str(x) for x in remittance) if remittance else ""
-        merchant = item.get("creditorName") or item.get("debtorName") or ""
+        creditor = {"name": item.get("creditorName")} if item.get("creditorName") else None
+        debtor = {"name": item.get("debtorName")} if item.get("debtorName") else None
+        merchant, location = resolve_merchant(amount, description, creditor, debtor)
+        counterparty = (item.get("creditorName") if amount < 0 else item.get("debtorName")) or item.get("creditorName") or item.get("debtorName") or ""
+        creditor_iban = ((item.get("creditorAccount") or {}) if isinstance(item.get("creditorAccount"), dict) else {}).get("iban") or ""
+        debtor_iban = ((item.get("debtorAccount") or {}) if isinstance(item.get("debtorAccount"), dict) else {}).get("iban") or ""
+        counterparty_iban = (creditor_iban if amount < 0 else debtor_iban) or creditor_iban or debtor_iban or ""
+        balance_info = item.get("balanceAfterTransaction") or {}
+        balance_after = float(balance_info["amount"]) if isinstance(balance_info, dict) and balance_info.get("amount") not in (None, "") else None
+        mcc = str(item.get("merchantCategoryCode") or "").strip() or None
         external_id = str(item.get("transactionId") or item.get("internalTransactionId") or item.get("entryReference") or uuid4().hex)
-        return ProviderTransaction(external_id=external_id, booked_at=date.fromisoformat(str(booked)[:10]), amount=amount, currency=amount_info.get("currency", "EUR"), description=description, merchant=merchant)
+        return ProviderTransaction(
+            external_id=external_id,
+            booked_at=date.fromisoformat(str(booked)[:10]),
+            amount=amount,
+            currency=amount_info.get("currency", "EUR"),
+            description=description,
+            merchant=merchant,
+            counterparty=str(counterparty or ""),
+            counterparty_iban=str(counterparty_iban or ""),
+            location=location,
+            mcc=mcc,
+            value_date=date.fromisoformat(str(value_raw)[:10]) if value_raw else None,
+            balance_after=balance_after,
+        )
 
     def fetch_transactions(self, session_id: str, account_external_id: str, date_from: date | None = None) -> list[ProviderTransaction]:
         if not self.configured or session_id.startswith("mock-"):

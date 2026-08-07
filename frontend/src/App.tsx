@@ -6,6 +6,7 @@ import { AuthPage } from "./pages/AuthPage";
 import { BanksPage } from "./pages/BanksPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { HouseholdPage } from "./pages/HouseholdPage";
+import { LegalPage } from "./pages/LegalPage";
 import { TransactionsPage } from "./pages/TransactionsPage";
 
 function Protected() {
@@ -26,6 +27,8 @@ export default function App() {
   return (
     <AuthProvider>
       <Routes>
+        <Route path="/privacy" element={<LegalPage kind="privacy" />} />
+        <Route path="/terms" element={<LegalPage kind="terms" />} />
         <Route path="/auth" element={<AuthGate />} />
         <Route element={<Protected />}>
           <Route path="/" element={<DashboardPage />} />

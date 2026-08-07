@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.models import Account, Transaction, TransactionSource
 from app.services.classification import classify_transaction, load_category_rules
 from app.services.csv_mapping import SAMPLE_ROW_LIMIT, pick_mapped, resolve_column_mapping, _score_header, SCHEMA_FIELDS
+from app.services.tx_enrichment import parse_card_merchant_location
 
 DATE_FORMATS = ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d")
 MISSING_MAPPING_MESSAGE = "Could not map CSV columns to booked_at and amount. Check headers or configure DEEPSEEK_API."
@@ -211,13 +212,15 @@ def import_transactions_upload(
             continue
         description = pick_mapped(row, mapping, "raw_description")
         merchant = pick_mapped(row, mapping, "merchant")
+        card_merchant, location = parse_card_merchant_location(description)
         tx = Transaction(
             account_id=account.id,
             booked_at=parse_date(date_raw),
             amount=parse_amount(amount_raw),
             currency=account.currency,
             raw_description=description,
-            merchant=merchant or description,
+            merchant=merchant or card_merchant or description,
+            location=location,
             external_id=external_id,
             source=TransactionSource.csv.value,
         )

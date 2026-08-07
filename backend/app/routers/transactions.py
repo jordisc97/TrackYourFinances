@@ -47,6 +47,12 @@ def _tx_out(tx: Transaction) -> TransactionOut:
         currency=tx.currency,
         raw_description=tx.raw_description,
         merchant=tx.merchant,
+        counterparty=tx.counterparty or "",
+        counterparty_iban=tx.counterparty_iban or "",
+        location=tx.location or "",
+        mcc=tx.mcc,
+        value_date=tx.value_date,
+        balance_after=tx.balance_after,
         source=tx.source,
         category_name=tx.category.name if tx.category else None,
         category_kind=tx.category.kind if tx.category else None,
@@ -88,7 +94,12 @@ def list_transactions(
         query = query.filter(Transaction.amount < 0)
     if q:
         needle = f"%{q.strip()}%"
-        query = query.filter((Transaction.merchant.ilike(needle)) | (Transaction.raw_description.ilike(needle)))
+        query = query.filter(
+            (Transaction.merchant.ilike(needle))
+            | (Transaction.raw_description.ilike(needle))
+            | (Transaction.counterparty.ilike(needle))
+            | (Transaction.location.ilike(needle))
+        )
     txs = query.order_by(Transaction.booked_at.desc()).limit(limit).all()
     if expenses_only:
         txs = [tx for tx in txs if is_spend_outflow(tx)]

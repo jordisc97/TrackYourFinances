@@ -743,7 +743,7 @@ def build_dashboard(db: Session, household_id: int, year: int | None = None, mon
     household = db.get(Household, household_id)
     benchmarks, benchmark_source, benchmark_location = get_or_refresh_benchmarks(db, household, income_for_benchmark)
     account_outs = [
-        AccountOut(id=a.id, name=a.name, institution=a.institution, currency=a.currency, account_type=a.account_type, source=a.source, is_active=a.is_active, latest_balance=balances.get(a.id, 0.0))
+        AccountOut(id=a.id, name=a.name, institution=a.institution, currency=a.currency, account_type=a.account_type, source=a.source, is_active=a.is_active, iban=a.iban, latest_balance=balances.get(a.id, 0.0))
         for a in accounts
     ]
     wealth_series_data = month_rows_wealth_series_adjusted(month_rows, invest_rows, year, month, 12)
