@@ -1,12 +1,24 @@
+# Secrets & local credentials (never commit)
+.env
+.env.*
+!.env.example
+!**/.env.example
+backend/.env
+backend/keys/
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+**/secrets/
+
 # Python
 backend/.venv/
 backend/**/__pycache__/
 backend/**/*.pyc
 backend/*.db
-backend/.env
+backend/**/*.db
 backend/data/
-backend/keys/
-*.pem
 
 # Node
 frontend/node_modules/
@@ -16,6 +28,5 @@ frontend/dist/
 .DS_Store
 Thumbs.db
 *.log
-.env
 .idea/
 .vscode/

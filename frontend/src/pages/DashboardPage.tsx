@@ -394,9 +394,9 @@ export function DashboardPage() {
           <div className="stat-sub">{whole.format(Math.round(m.save_pct))}% of wage</div>
         </div>
         <div className="panel">
-          <div className="stat-label">vs last month</div>
-          <div className={`stat-value ${deltaClass}`}>{signedEuro(m.net_worth_delta)}</div>
-          <div className="stat-sub">{m.net_worth_delta_pct == null ? "—" : `${whole.format(Math.round(m.net_worth_delta_pct))}%`}</div>
+          <div className="stat-label">Wealth</div>
+          <div className="stat-value">{euro.format(m.net_worth)}</div>
+          <div className={`stat-sub ${deltaClass}`}>{m.net_worth_delta_pct == null ? signedEuro(m.net_worth_delta) : `${signedEuro(m.net_worth_delta)} · ${whole.format(Math.round(m.net_worth_delta_pct))}%`}</div>
         </div>
       </div>
 
