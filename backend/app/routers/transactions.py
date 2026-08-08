@@ -18,10 +18,14 @@ from app.schemas import (
     TransactionSplitOut,
 )
 from app.services.classification import classify_uncategorized, remember_commerce, rematch_positive_inflows, register_employer_rules
-from app.services.dashboard import is_spend_outflow
+from app.services.dashboard import household_account_ids, is_spend_outflow
 from app.services.splits import clear_splits, replace_splits, signed_portion_amount, validate_portions
 
 router = APIRouter(prefix="/api", tags=["transactions"])
+
+
+def _household_account_ids(db: Session, user: User) -> list[int]:
+    return household_account_ids(db, user.household_id)
 
 
 def _split_out(split: TransactionSplit) -> TransactionSplitOut:
@@ -80,7 +84,7 @@ def list_transactions(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[TransactionOut]:
-    account_ids = [a.id for a in db.query(Account).filter(Account.household_id == user.household_id).all()]
+    account_ids = _household_account_ids(db, user)
     if not account_ids:
         return []
     query = _tx_query(db, account_ids)
@@ -113,7 +117,7 @@ def list_transactions(
 
 @router.post("/transactions/{transaction_id}/assign", response_model=TransactionOut)
 def assign_category(transaction_id: int, payload: TransactionAssignIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> TransactionOut:
-    account_ids = [a.id for a in db.query(Account).filter(Account.household_id == user.household_id).all()]
+    account_ids = _household_account_ids(db, user)
     tx = (
         db.query(Transaction)
         .options(joinedload(Transaction.category), joinedload(Transaction.account), joinedload(Transaction.splits).joinedload(TransactionSplit.category))
@@ -139,7 +143,7 @@ def assign_category(transaction_id: int, payload: TransactionAssignIn, user: Use
 
 @router.post("/transactions/{transaction_id}/split", response_model=TransactionOut)
 def split_transaction(transaction_id: int, payload: TransactionSplitIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> TransactionOut:
-    account_ids = [a.id for a in db.query(Account).filter(Account.household_id == user.household_id).all()]
+    account_ids = _household_account_ids(db, user)
     tx = _tx_query(db, account_ids).filter(Transaction.id == transaction_id).first()
     if tx is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
@@ -158,7 +162,7 @@ def split_transaction(transaction_id: int, payload: TransactionSplitIn, user: Us
 
 @router.delete("/transactions/{transaction_id}/split", response_model=TransactionOut)
 def unsplit_transaction(transaction_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> TransactionOut:
-    account_ids = [a.id for a in db.query(Account).filter(Account.household_id == user.household_id).all()]
+    account_ids = _household_account_ids(db, user)
     tx = _tx_query(db, account_ids).filter(Transaction.id == transaction_id).first()
     if tx is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
@@ -175,7 +179,7 @@ def list_categories(user: User = Depends(get_current_user), db: Session = Depend
 def register_employers(payload: EmployersIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> EmployersOut:
     created, companies = register_employer_rules(db, user.household_id, payload.companies)
     if companies:
-        account_ids = [a.id for a in db.query(Account).filter(Account.household_id == user.household_id).all()]
+        account_ids = _household_account_ids(db, user)
         if account_ids:
             rematch_positive_inflows(db, user.household_id, account_ids)
     return EmployersOut(created=created, companies=companies)
@@ -183,7 +187,7 @@ def register_employers(payload: EmployersIn, user: User = Depends(get_current_us
 
 @router.post("/transactions/classify", response_model=ClassifyResult)
 def classify_transactions(account_id: int | None = Query(None), user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> ClassifyResult:
-    accounts = db.query(Account).filter(Account.household_id == user.household_id).all()
+    accounts = db.query(Account).filter(Account.household_id == user.household_id, Account.is_active.is_(True)).all()
     if account_id is not None:
         accounts = [account for account in accounts if account.id == account_id]
     if not accounts:

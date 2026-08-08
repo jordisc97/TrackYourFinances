@@ -7,7 +7,8 @@ from app.models import Household, User, UserRole
 from app.schemas import HouseholdOut, JoinHouseholdIn, LoginIn, ProfileUpdateIn, RegisterIn, TokenOut, UserOut
 from app.security import create_access_token, hash_password, verify_password
 from app.seed import new_invite_code, seed_household_defaults
-from app.services.benchmarks import invalidate_benchmarks
+from app.services.benchmarks import invalidate_benchmarks, refresh_location_benchmarks
+from app.services.dashboard import average_income_spend
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -76,4 +77,6 @@ def update_profile(payload: ProfileUpdateIn, user: User = Depends(get_current_us
     db.refresh(user)
     if location_changed:
         invalidate_benchmarks(db, household.id)
+        avg_income, _ = average_income_spend(db, household.id)
+        refresh_location_benchmarks(db, household, avg_income)
     return household

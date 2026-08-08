@@ -87,10 +87,10 @@ export function BanksPage() {
   return (
     <div>
       <section className="hero">
-        <h1>Banks</h1>
+        <h1>Bank Auto Connection</h1>
         <p>
           Open Banking links for live balances and transactions. CSV imports live under{" "}
-          <Link to="/accounts">Accounts</Link> / <Link to="/transactions">Transactions</Link>, not here.
+          <Link to="/accounts">Accounts File Connection</Link>, not here.
         </p>
         {message && <p className={messageTone === "err" ? "amount-neg" : "muted"} style={{ marginTop: "0.75rem" }}>{message}</p>}
       </section>

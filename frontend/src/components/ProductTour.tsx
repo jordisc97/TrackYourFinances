@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth";
 
-const ONBOARDING_KEY_PREFIX = "tyf_onboarding_v1";
+const ONBOARDING_KEY_PREFIX = "tyf_onboarding_v5";
 const ONBOARDING_DONE_VALUE = "1";
-const SETUP_ROUTE = "/transactions?setup=1";
+const ACCOUNTS_ROUTE = "/accounts";
+const TRANSACTIONS_ROUTE = "/transactions";
+const PROFILE_ROUTE = "/household";
 const PAD_PX = 8;
 const MEASURE_INTERVAL_MS = 120;
 const SPOTLIGHT_RADIUS_PX = 12;
@@ -15,23 +17,80 @@ type TourStep = {
   body: string;
   target?: string;
   route?: string;
+  interactive?: boolean;
 };
 
 const TOUR_STEPS: TourStep[] = [
-  { id: "welcome", title: "Welcome to TrackYourFinances", body: "A quick tour of the main areas, then we will help you import your first bank CSV." },
-  { id: "dashboard", title: "Dashboard", body: "See spending, savings, and household overview at a glance.", target: "nav-dashboard", route: "/" },
-  { id: "transactions", title: "Transactions", body: "Classify spending, split shared bills, and import bank CSV or Excel files.", target: "nav-transactions", route: "/transactions" },
-  { id: "accounts", title: "Accounts", body: "Track balances and manage checking, savings, and investment accounts.", target: "nav-accounts", route: "/accounts" },
-  { id: "banks", title: "Banks", body: "Connect banks with Open Banking when you want automatic sync.", target: "nav-banks", route: "/banks" },
-  { id: "profile", title: "Profile", body: "Update your household name, location, and invite partners.", target: "nav-profile", route: "/household" },
-  { id: "setup", title: "Set up with CSV", body: "Name the account yourself, then upload a bank export. Rows import first; categories are assigned next.", target: "csv-import", route: SETUP_ROUTE },
+  {
+    id: "welcome",
+    title: "Welcome to TrackYourFinances",
+    body: "Two ways to connect banks: upload a file, or sync automatically. We will walk the app left to right, starting with the Dashboard.",
+  },
+  {
+    id: "dashboard",
+    title: "Dashboard",
+    body: "Household wealth, spending, and location-aware category benchmarks in one overview.",
+    target: "nav-dashboard",
+    route: "/",
+  },
+  {
+    id: "transactions",
+    title: "Transactions",
+    body: "After data is in, review the ledger: classify spending, split shared bills, and grow rules from one-click assigns.",
+    target: "nav-transactions",
+    route: TRANSACTIONS_ROUTE,
+  },
+  {
+    id: "money-flow",
+    title: "Money flow",
+    body: "At the top of Transactions, see how income moves through your accounts into expenses for the month you pick.",
+    target: "money-flow",
+    route: TRANSACTIONS_ROUTE,
+  },
+  {
+    id: "accounts",
+    title: "Accounts File Connection",
+    body: "Create an account and import a bank CSV or Excel export — no live bank login required.",
+    target: "nav-accounts",
+    route: ACCOUNTS_ROUTE,
+  },
+  {
+    id: "import",
+    title: "Import bank CSV/Excel",
+    body: "Name the account (or pick an existing one), choose your export file, then import. Rows load first; categories are assigned next.",
+    target: "csv-import",
+    route: ACCOUNTS_ROUTE,
+  },
+  {
+    id: "banks",
+    title: "Bank Auto Connection",
+    body: "Prefer automatic updates? Link a bank with Open Banking here. File imports stay under Accounts File Connection.",
+    target: "nav-banks",
+    route: "/banks",
+  },
+  {
+    id: "profile",
+    title: "Profile",
+    body: "Your household details live here. You can also invite a partner with the invite code.",
+    target: "nav-profile",
+    route: PROFILE_ROUTE,
+  },
+  {
+    id: "location",
+    title: "Where you live",
+    body: "Type your city and country (for example Barcelona, Spain), then Save profile. We rebuild Spend-by-category typicals for that place and your income — it can take a few seconds.",
+    target: "profile-location",
+    route: PROFILE_ROUTE,
+    interactive: true,
+  },
 ];
 
 const LAST_STEP_INDEX = TOUR_STEPS.length - 1;
 const NEXT_LABEL = "Next";
-const FINISH_LABEL = "Start setup";
+const FINISH_LABEL = "Finish";
 const SKIP_LABEL = "Skip tour";
 const STEP_LABEL_PREFIX = "Step";
+const LOCATION_FOCUS_DELAY_MS = 280;
 
 export function onboardingStorageKey(userId: number) {
   return `${ONBOARDING_KEY_PREFIX}:${userId}`;
@@ -53,6 +112,18 @@ function readTargetRect(target: string | undefined): SpotlightRect | null {
   if (!el) return null;
   const box = el.getBoundingClientRect();
   return { top: box.top - PAD_PX, left: box.left - PAD_PX, width: box.width + PAD_PX * 2, height: box.height + PAD_PX * 2 };
+}
+
+function scrollTourTarget(target: string | undefined) {
+  if (!target) return;
+  document.querySelector(`[data-tour="${target}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+function focusTourTargetInput(target: string | undefined) {
+  if (!target) return;
+  const root = document.querySelector(`[data-tour="${target}"]`);
+  const input = root?.querySelector("input, select, textarea") ?? (root instanceof HTMLInputElement ? root : null);
+  if (input instanceof HTMLElement) input.focus();
 }
 
 export function ProductTour() {
@@ -79,6 +150,7 @@ export function ProductTour() {
 
   useEffect(() => {
     if (!active) return;
+    scrollTourTarget(TOUR_STEPS[stepIndex]?.target);
     const measure = () => setRect(readTargetRect(TOUR_STEPS[stepIndex]?.target));
     measure();
     const timerId = window.setInterval(measure, MEASURE_INTERVAL_MS);
@@ -90,6 +162,12 @@ export function ProductTour() {
       window.removeEventListener("scroll", measure, true);
     };
   }, [active, stepIndex, location.pathname, location.search]);
+
+  useEffect(() => {
+    if (!active || !step?.interactive || !step.target) return;
+    const timerId = window.setTimeout(() => focusTourTargetInput(step.target), LOCATION_FOCUS_DELAY_MS);
+    return () => window.clearTimeout(timerId);
+  }, [active, stepIndex, step?.interactive, step?.target, location.pathname]);
 
   if (!user || !active || !step) return null;
 
@@ -112,7 +190,8 @@ export function ProductTour() {
 
   return (
     <div className="product-tour" role="dialog" aria-modal="true" aria-labelledby="product-tour-title">
-      {rect ? <div className="product-tour-catcher" /> : <div className="product-tour-backdrop" />}
+      {rect && !step.interactive && <div className="product-tour-catcher" />}
+      {!rect && <div className="product-tour-backdrop" />}
       {rect && (
         <div
           className="product-tour-spotlight"

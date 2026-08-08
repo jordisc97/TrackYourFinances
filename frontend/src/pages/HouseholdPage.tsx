@@ -22,7 +22,7 @@ export function HouseholdPage() {
     setMessage("");
     await api.updateProfile({ display_name: displayName, household_name: householdName, location });
     await Promise.all([refreshHousehold(), refreshUser()]);
-    setMessage("Profile saved. Category benchmarks will refresh on the dashboard.");
+    setMessage("Profile saved. Location benchmarks updated for Spend by category.");
     setSaving(false);
   }
 
@@ -30,7 +30,7 @@ export function HouseholdPage() {
     <div>
       <section className="hero">
         <h1>Profile</h1>
-        <p>Set your city or country so Spend by category can show typical monthly amounts for your location and salary.</p>
+        <p>Set your city or country so Spend by category can show typical monthly amounts for your location and salary. Saving location may take a moment while benchmarks refresh.</p>
       </section>
       <div className="panel" style={{ maxWidth: 520 }}>
         <form className="stack-form" onSubmit={(e) => saveProfile(e).catch((err: Error) => { setMessage(err.message); setSaving(false); })}>
@@ -42,7 +42,7 @@ export function HouseholdPage() {
             <div className="muted">Household name</div>
             <input value={householdName} onChange={(e) => setHouseholdName(e.target.value)} required />
           </label>
-          <label>
+          <label data-tour="profile-location">
             <div className="muted">Location (city, country)</div>
             <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g. Barcelona, Spain" />
           </label>

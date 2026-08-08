@@ -78,9 +78,15 @@ select option, select optgroup {
   position: sticky; top: 0; z-index: 10;
 }
 .brand { font-family: var(--display); font-size: 1.35rem; letter-spacing: -0.02em; }
-.nav-links { display: flex; gap: 0.85rem; flex-wrap: wrap; align-items: center; }
+.nav-links { display: flex; gap: 0; flex-wrap: wrap; align-items: center; }
+.nav-links > * + * {
+  margin-left: 0.85rem;
+  padding-left: 0.85rem;
+  border-left: 1px solid var(--line);
+}
 .nav-links a { color: var(--muted); font-weight: 500; }
 .nav-links a.active, .nav-links a:hover { color: var(--ink); }
+.nav-identity { color: var(--accent-2); font-weight: 500; }
 
 .page { width: min(1200px, calc(100% - 2rem)); margin: 1.5rem auto 3rem; }
 

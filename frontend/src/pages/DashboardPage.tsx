@@ -486,7 +486,7 @@ export function DashboardPage() {
           {hasInvestAccounts && <div className="stat-value invest">{euro.format(data.invested_total)}</div>}
         </div>
         {!hasInvestAccounts && (
-          <p className="muted">No investment accounts yet. Add S&amp;P 500 (or another broker) on <Link to="/accounts">Accounts</Link> and import balance history.</p>
+          <p className="muted">No investment accounts yet. Add S&amp;P 500 (or another broker) on <Link to="/accounts">Accounts File Connection</Link> and import balance history.</p>
         )}
         {hasInvestAccounts && (
           <table className="table">

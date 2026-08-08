@@ -18,6 +18,7 @@ from app.schemas import (
     OpeningWealthOut,
     YearlyObjectiveOut,
 )
+from app.services.account_purge import purge_inactive_accounts
 from app.services.benchmarks import get_or_refresh_benchmarks
 
 SP500_ANNUAL_RETURN = 0.10
@@ -204,7 +205,7 @@ def active_accounts(db: Session, household_id: int) -> list[Account]:
 
 
 def household_account_ids(db: Session, household_id: int) -> list[int]:
-    return [a.id for a in db.query(Account).filter(Account.household_id == household_id).all()]
+    return [a.id for a in active_accounts(db, household_id)]
 
 
 def latest_balances(db: Session, household_id: int) -> dict[int, float]:
@@ -710,6 +711,8 @@ def build_wealth_projection(
 
 
 def build_dashboard(db: Session, household_id: int, year: int | None = None, month: int | None = None) -> DashboardOut:
+    if purge_inactive_accounts(db, household_id):
+        db.commit()
     today = date.today()
     all_txs = household_transactions(db, household_id)
     month_rows = build_month_rows(db, household_id, all_txs)
