@@ -9,6 +9,10 @@
 </p>
 
 <p align="center">
+  <a href="https://track-your-finances-yoxg.onrender.com/"><strong>Try the live app on Render →</strong></a>
+</p>
+
+<p align="center">
   <img alt="Stack" src="https://img.shields.io/badge/stack-FastAPI%20%7C%20React%20%7C%20SQLite-2ec4b6?style=for-the-badge&labelColor=0a0e14" />
   <img alt="Open Banking" src="https://img.shields.io/badge/open%20banking-GoCardless%20%2F%20Enable%20Banking-e8a87c?style=for-the-badge&labelColor=0a0e14" />
   <img alt="Self-hosted" src="https://img.shields.io/badge/deploy-self%20hosted-8b97a8?style=for-the-badge&labelColor=0a0e14" />
