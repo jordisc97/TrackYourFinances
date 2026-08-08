@@ -30,9 +30,9 @@ export function HouseholdPage() {
     <div>
       <section className="hero">
         <h1>Profile</h1>
-        <p>Set your city or country so Spend by category can show typical monthly amounts for your location and salary. Saving location may take a moment while benchmarks refresh.</p>
+        <p>Set city or country so Spend by category can show typical amounts for your location and salary.</p>
       </section>
-      <div className="panel" style={{ maxWidth: 520 }}>
+      <div className="panel profile-panel">
         <form className="stack-form" onSubmit={(e) => saveProfile(e).catch((err: Error) => { setMessage(err.message); setSaving(false); })}>
           <label>
             <div className="muted">Display name</div>
@@ -48,12 +48,12 @@ export function HouseholdPage() {
           </label>
           <button type="submit" disabled={saving}>{saving ? "Saving…" : "Save profile"}</button>
         </form>
-        {message && <p className="muted" style={{ marginTop: "0.75rem" }}>{message}</p>}
-        <div style={{ marginTop: "1.5rem" }}>
+        {message && <p className="muted profile-message">{message}</p>}
+        <div className="profile-invite">
           <div className="stat-label">Invite code</div>
-          <div className="stat-value" style={{ letterSpacing: "0.04em" }}>{household?.invite_code}</div>
-          <p className="muted" style={{ marginTop: "0.75rem" }}>
-            Partner opens the app → Join → paste this code. Signed in as {user?.display_name} ({user?.role}).
+          <div className="stat-value profile-invite-code">{household?.invite_code}</div>
+          <p className="muted">
+            Partner opens the app, chooses Join, then pastes this code. Signed in as {user?.display_name} ({user?.role}).
           </p>
         </div>
       </div>

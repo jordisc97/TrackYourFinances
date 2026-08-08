@@ -11,14 +11,14 @@ import { TransactionsPage } from "./pages/TransactionsPage";
 
 function Protected() {
   const { user, loading } = useAuth();
-  if (loading) return <p className="muted" style={{ padding: "2rem" }}>Loading…</p>;
+  if (loading) return <p className="app-loading">Loading…</p>;
   if (!user) return <Navigate to="/auth" replace />;
   return <Layout />;
 }
 
 function AuthGate() {
   const { user, loading } = useAuth();
-  if (loading) return <p className="muted" style={{ padding: "2rem" }}>Loading…</p>;
+  if (loading) return <p className="app-loading">Loading…</p>;
   if (user) return <Navigate to="/" replace />;
   return <AuthPage />;
 }

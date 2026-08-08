@@ -262,7 +262,7 @@ export function TransactionsPage() {
     <div>
       <section className="hero">
         <h1>Transactions</h1>
-        <p>See money flow, then classify spending, split shared bills, and grow rules from one-click assigns.</p>
+        <p>Money flow first, then classify spend, split shared bills, and grow rules from one-click assigns.</p>
       </section>
 
       <div className="panel flow-panel" data-tour="money-flow">

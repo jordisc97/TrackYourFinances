@@ -51,13 +51,16 @@ const COPY: Record<LegalKind, { title: string; sections: { heading: string; body
   },
 };
 
+const BRAND_NAME = "TrackYourFinances";
+const LEGAL_UPDATED = "Last updated: 3 August 2026";
+
 export function LegalPage({ kind }: { kind: LegalKind }) {
   const page = COPY[kind];
   const other = kind === "privacy" ? { to: "/terms", label: "Terms" } : { to: "/privacy", label: "Privacy" };
   return (
     <div className="legal-page">
       <header className="legal-head">
-        <Link to="/auth" className="brand">TrackYourFinances</Link>
+        <Link to="/auth" className="brand">{BRAND_NAME}</Link>
         <nav className="legal-nav">
           <Link to="/privacy">Privacy</Link>
           <Link to="/terms">Terms</Link>
@@ -66,14 +69,14 @@ export function LegalPage({ kind }: { kind: LegalKind }) {
       </header>
       <article className="legal-body">
         <h1>{page.title}</h1>
-        <p className="muted">Last updated: 3 August 2026</p>
+        <p className="muted">{LEGAL_UPDATED}</p>
         {page.sections.map((section) => (
-          <section key={section.heading}>
+          <section key={section.heading} className="legal-section">
             <h2>{section.heading}</h2>
             <p>{section.body}</p>
           </section>
         ))}
-        <p className="muted">Also see <Link to={other.to}>{other.label}</Link>.</p>
+        <p className="muted legal-also">Also see <Link to={other.to}>{other.label}</Link>.</p>
       </article>
     </div>
   );

@@ -335,7 +335,7 @@ export function AccountsPage() {
     <div>
       <section className="hero">
         <h1>Accounts File Connection</h1>
-        <p>Create accounts and connect them with bank CSV/Excel files. Manage balances and investment history here.</p>
+        <p>Create accounts, import bank CSV or Excel, and keep balances plus investment history current.</p>
       </section>
 
       <div ref={importPanelRef} data-tour="csv-import" className={`panel csv-import${busy ? " is-busy" : ""}${setupMode ? " is-setup" : ""}`} style={{ marginBottom: "1rem" }}>

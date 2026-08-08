@@ -89,8 +89,8 @@ export function BanksPage() {
       <section className="hero">
         <h1>Bank Auto Connection</h1>
         <p>
-          Open Banking links for live balances and transactions. CSV imports live under{" "}
-          <Link to="/accounts">Accounts File Connection</Link>, not here.
+          Open Banking for live balances and transactions. CSV imports live under{" "}
+          <Link to="/accounts">Accounts File Connection</Link>.
         </p>
         {message && <p className={messageTone === "err" ? "amount-neg" : "muted"} style={{ marginTop: "0.75rem" }}>{message}</p>}
       </section>

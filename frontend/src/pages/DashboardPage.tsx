@@ -376,6 +376,15 @@ export function DashboardPage() {
 
   return (
     <div className="dash-stack">
+      <section className="hero">
+        <h1>Dashboard</h1>
+        <p>Month strategy, category spend, and household wealth in one place.</p>
+        <div className="hero-wealth">
+          <span className="hero-wealth-label">Wealth</span>
+          <span className="nw">{euro.format(m.net_worth)}</span>
+          <span className={`hero-wealth-delta ${deltaClass}`}>{m.net_worth_delta_pct == null ? signedEuro(m.net_worth_delta) : `${signedEuro(m.net_worth_delta)} · ${whole.format(Math.round(m.net_worth_delta_pct))}%`}</span>
+        </div>
+      </section>
       <MonthTable
         rows={data.month_rows}
         year={year}
@@ -386,14 +395,14 @@ export function DashboardPage() {
       {message && <p className="muted">{message}</p>}
 
       <div className="grid stats">
-        <div className="panel"><div className="stat-label">Wage</div><div className="stat-value save">{euro.format(m.income)}</div></div>
-        <div className="panel"><div className="stat-label">Spend</div><div className="stat-value spend">{euro.format(m.real_spend)}</div></div>
-        <div className="panel">
+        <div className="panel stat-panel"><div className="stat-label">Wage</div><div className="stat-value save">{euro.format(m.income)}</div></div>
+        <div className="panel stat-panel"><div className="stat-label">Spend</div><div className="stat-value spend">{euro.format(m.real_spend)}</div></div>
+        <div className="panel stat-panel">
           <div className="stat-label">Saved</div>
           <div className="stat-value save">{euro.format(m.save_amount)}</div>
           <div className="stat-sub">{whole.format(Math.round(m.save_pct))}% of wage</div>
         </div>
-        <div className="panel">
+        <div className="panel stat-panel">
           <div className="stat-label">Wealth</div>
           <div className="stat-value">{euro.format(m.net_worth)}</div>
           <div className={`stat-sub ${deltaClass}`}>{m.net_worth_delta_pct == null ? signedEuro(m.net_worth_delta) : `${signedEuro(m.net_worth_delta)} · ${whole.format(Math.round(m.net_worth_delta_pct))}%`}</div>
