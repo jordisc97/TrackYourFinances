@@ -2,7 +2,7 @@ services:
   - type: web
     name: track-your-finances
     runtime: docker
-    plan: starter
+    plan: free
     healthCheckPath: /api/health
     envVars:
       - key: ENV
@@ -10,7 +10,7 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: DATABASE_URL
-        value: sqlite:////var/data/finances.db
+        value: sqlite:///./data/finances.db
       - key: CORS_ORIGINS
         sync: false
       - key: JWT_EXPIRE_MINUTES
@@ -25,7 +25,3 @@ services:
         value: ES
       - key: DEEPSEEK_API
         sync: false
-    disk:
-      name: finances-data
-      mountPath: /var/data
-      sizeGB: 1

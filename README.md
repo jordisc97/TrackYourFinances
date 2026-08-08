@@ -191,9 +191,9 @@ This repo is set up so **real credentials stay on your machine**:
 
 ---
 
-## Deploy on Render
+## Deploy on Render (free)
 
-The repo includes a Docker image and [`render.yaml`](render.yaml) Blueprint that runs FastAPI + the built React app as one web service, with SQLite on a persistent disk.
+The repo includes a Docker image and [`render.yaml`](render.yaml) Blueprint that runs FastAPI + the built React app as one **free** web service.
 
 1. Push this repo to GitHub and open [Render Blueprints](https://dashboard.render.com/blueprints).
 2. Connect the repo and apply the Blueprint (`track-your-finances`).
@@ -201,7 +201,7 @@ The repo includes a Docker image and [`render.yaml`](render.yaml) Blueprint that
 4. Optional: set `DEEPSEEK_API` and bank provider secrets. For live banks, set redirect URLs to `https://<your-service>.onrender.com/api/banking/callback`.
 5. Open the service URL — visitors register their own household (JWT + bcrypt).
 
-`render.yaml` uses the **Starter** plan so SQLite can live on a persistent disk (required so accounts survive restarts). Free web services are ephemeral and will lose the database on every deploy/restart.
+**Free-tier tradeoffs:** the instance sleeps after idle time (first request can be slow), and SQLite lives on ephemeral disk — accounts/data are wiped on redeploy or when the free instance is recycled. Fine for demos; not for keeping real household history.
 
 Local Docker smoke test:
 

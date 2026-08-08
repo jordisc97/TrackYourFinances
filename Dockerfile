@@ -12,8 +12,8 @@ COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ ./
 COPY --from=frontend /frontend/dist ./static
-RUN mkdir -p /var/data
-ENV DATABASE_URL=sqlite:////var/data/finances.db
+RUN mkdir -p ./data
+ENV DATABASE_URL=sqlite:///./data/finances.db
 ENV ENV=production
 EXPOSE 8000
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
