@@ -1,5 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
+import { AuthAmbient } from "../components/AuthAmbient";
+import { BrandLogo } from "../components/BrandLogo";
 import { useAuth } from "../auth";
 
 type Mode = "login" | "register";
@@ -15,8 +17,7 @@ const MODE_HINTS: Record<Mode, string> = {
 };
 
 const MIN_PASSWORD_LENGTH = 8;
-const BRAND_NAME = "TrackYourFinances";
-const BRAND_HEADLINE = "Household wealth, clearly.";
+const BRAND_HEADLINE = "Your wealth, simplified.";
 const BRAND_SUPPORT = "Balances, cashflow, and open banking for European banks. Private by default.";
 
 export function AuthPage() {
@@ -45,11 +46,13 @@ export function AuthPage() {
 
   return (
     <div className="auth-shell">
+      <AuthAmbient />
       <aside className="auth-brand" aria-label="Brand">
-        <p className="auth-brand-name">{BRAND_NAME}</p>
-        <h1 className="auth-brand-headline">{BRAND_HEADLINE}</h1>
-        <p className="auth-brand-support">{BRAND_SUPPORT}</p>
-        <div className="auth-brand-plane" aria-hidden="true" />
+        <div className="auth-brand-copy">
+          <BrandLogo size="lg" />
+          <h1 className="auth-brand-headline">{BRAND_HEADLINE}</h1>
+          <p className="auth-brand-support">{BRAND_SUPPORT}</p>
+        </div>
       </aside>
 
       <main className="auth-gate">

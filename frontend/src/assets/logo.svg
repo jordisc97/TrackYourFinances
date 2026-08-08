@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" fill="none" role="img" aria-label="TrackYourFinances">
   <rect width="40" height="40" rx="10" fill="#0a0e14"/>
   <path d="M6.5 28.5C11 27.5 12.5 13.5 17.2 13.8C21.5 14.1 22.2 26.2 27.2 22.8C30.4 20.6 33 12.8 35.2 10.2" stroke="#2ec4b6" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
   <circle cx="35.2" cy="10.2" r="2.9" fill="#e8a87c"/>

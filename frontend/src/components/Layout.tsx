@@ -1,15 +1,14 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../auth";
+import { BrandLogo } from "./BrandLogo";
 import { ProductTour } from "./ProductTour";
-
-const BRAND_NAME = "TrackYourFinances";
 
 export function Layout() {
   const { user, household, logout } = useAuth();
   return (
     <div className="app-shell">
       <header className="topnav">
-        <div className="brand" data-tour="brand">{BRAND_NAME}</div>
+        <div className="brand" data-tour="brand"><BrandLogo size="sm" /></div>
         <nav className="nav-bar" aria-label="Primary">
           <div className="nav-links">
             <NavLink to="/" end data-tour="nav-dashboard" className={({ isActive }) => (isActive ? "active" : undefined)}>Dashboard</NavLink>

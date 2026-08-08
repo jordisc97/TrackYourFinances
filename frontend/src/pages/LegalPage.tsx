@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { BrandLogo } from "../components/BrandLogo";
 
 type LegalKind = "privacy" | "terms";
 
@@ -51,7 +52,6 @@ const COPY: Record<LegalKind, { title: string; sections: { heading: string; body
   },
 };
 
-const BRAND_NAME = "TrackYourFinances";
 const LEGAL_UPDATED = "Last updated: 3 August 2026";
 
 export function LegalPage({ kind }: { kind: LegalKind }) {
@@ -60,7 +60,7 @@ export function LegalPage({ kind }: { kind: LegalKind }) {
   return (
     <div className="legal-page">
       <header className="legal-head">
-        <Link to="/auth" className="brand">{BRAND_NAME}</Link>
+        <Link to="/auth" className="brand"><BrandLogo size="sm" /></Link>
         <nav className="legal-nav">
           <Link to="/privacy">Privacy</Link>
           <Link to="/terms">Terms</Link>
