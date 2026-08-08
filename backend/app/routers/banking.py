@@ -1,4 +1,5 @@
 from datetime import datetime
+import secrets
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -16,6 +17,7 @@ from app.schemas import AuthStartOut, BankConnectionOut, InstitutionOut
 from app.services.sync import sync_connection
 
 router = APIRouter(prefix="/api/banking", tags=["banking"])
+OAUTH_STATE_BYTES = 32
 
 
 def _banks_redirect(status_value: str, message: str) -> RedirectResponse:
@@ -23,8 +25,14 @@ def _banks_redirect(status_value: str, message: str) -> RedirectResponse:
     return RedirectResponse(url=f"{frontend}/banks?bank_status={status_value}&bank_message={quote(message)}")
 
 
+def _new_oauth_state() -> str:
+    return secrets.token_urlsafe(OAUTH_STATE_BYTES)
+
+
 def _start_auth(db: Session, connection: BankConnection, provider: BankProvider, psu_type: str = "personal") -> AuthStartOut:
-    session = provider.start_authorization(connection.institution_id, state=str(connection.id), psu_type=psu_type)
+    oauth_state = _new_oauth_state()
+    connection.oauth_state = oauth_state
+    session = provider.start_authorization(connection.institution_id, state=oauth_state, psu_type=psu_type)
     connection.session_id = session.session_id
     connection.status = ConnectionStatus.pending.value
     db.commit()
@@ -36,6 +44,10 @@ def _connection_for_user(db: Session, connection_id: int, household_id: int) -> 
     if connection is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
     return connection
+
+
+def _connection_by_oauth_state(db: Session, oauth_state: str) -> BankConnection | None:
+    return db.query(BankConnection).filter(BankConnection.oauth_state == oauth_state).first()
 
 
 PSU_TYPES = {"personal", "business"}
@@ -106,17 +118,17 @@ def callback(
 ) -> RedirectResponse:
     connection_ref = state or ref
     if error:
-        if connection_ref and connection_ref.isdigit():
-            connection = db.get(BankConnection, int(connection_ref))
+        if connection_ref:
+            connection = _connection_by_oauth_state(db, connection_ref)
             if connection is not None:
                 connection.status = ConnectionStatus.error.value
                 db.commit()
         detail = error_description or error
         message = f"Bank login was cancelled ({detail}). Retry from Banks, or import a CSV." if error == "access_denied" else f"Bank login failed: {detail}"
         return _banks_redirect("failed", message)
-    if not connection_ref or not connection_ref.isdigit():
+    if not connection_ref:
         return _banks_redirect("failed", "Missing bank connection state.")
-    connection = db.get(BankConnection, int(connection_ref))
+    connection = _connection_by_oauth_state(db, connection_ref)
     if connection is None:
         return _banks_redirect("failed", "Bank connection not found.")
     provider = get_bank_provider()

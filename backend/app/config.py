@@ -2,12 +2,19 @@ from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+DEFAULT_SECRET_KEY = "dev-secret-change-me"
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
     app_name: str = "TrackYourFinances"
-    secret_key: str = "dev-secret-change-me"
+    env: str = "development"
+    secret_key: str = DEFAULT_SECRET_KEY
     database_url: str = "sqlite:///./data/finances.db"
     cors_origins: str = "http://127.0.0.1:5174"
+    static_dir: str = "static"
+    auth_rate_limit_per_minute: int = 10
+    min_password_length: int = 8
     default_spend_pct: float = 50.0
     default_save_pct: float = 25.0
     default_invest_pct: float = 25.0

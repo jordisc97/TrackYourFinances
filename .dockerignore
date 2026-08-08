@@ -1,0 +1,15 @@
+.git
+.venv
+**/__pycache__
+**/*.pyc
+backend/.env
+backend/.venv
+backend/data/*.db
+backend/keys
+frontend/node_modules
+frontend/dist
+*.md
+docs
+.cursor
+agent-transcripts
+tunnel.*.log

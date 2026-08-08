@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: track-your-finances
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/health
+    envVars:
+      - key: ENV
+        value: production
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        value: sqlite:////var/data/finances.db
+      - key: CORS_ORIGINS
+        sync: false
+      - key: JWT_EXPIRE_MINUTES
+        value: "10080"
+      - key: AUTH_RATE_LIMIT_PER_MINUTE
+        value: "10"
+      - key: MIN_PASSWORD_LENGTH
+        value: "8"
+      - key: BANK_PROVIDER
+        value: gocardless
+      - key: BANK_COUNTRY
+        value: ES
+      - key: DEEPSEEK_API
+        sync: false
+    disk:
+      name: finances-data
+      mountPath: /var/data
+      sizeGB: 1

@@ -12,31 +12,56 @@
   <img alt="Stack" src="https://img.shields.io/badge/stack-FastAPI%20%7C%20React%20%7C%20SQLite-2ec4b6?style=for-the-badge&labelColor=0a0e14" />
   <img alt="Open Banking" src="https://img.shields.io/badge/open%20banking-GoCardless%20%2F%20Enable%20Banking-e8a87c?style=for-the-badge&labelColor=0a0e14" />
   <img alt="Self-hosted" src="https://img.shields.io/badge/deploy-self%20hosted-8b97a8?style=for-the-badge&labelColor=0a0e14" />
+  <img alt="Render" src="https://img.shields.io/badge/deploy-Render-46E3B7?style=for-the-badge&labelColor=0a0e14" />
 </p>
 
 ---
 
-## What you get
+## Screenshots
 
-| | | |
-|:---:|:---:|:---:|
-| **🏠 Household** | **🏦 Banks** | **📊 Dashboard** |
-| Shared household + invite code for your partner | Connect via GoCardless or Enable Banking | Net worth, spend %, save/invest targets |
-| **📥 Imports** | **🤖 Advisor** | **📈 Wealth** |
-| CSV import with smart column mapping | DeepSeek-powered chat over your transactions | Charts for cashflow and allocation |
+Household auth, dashboard planning, money flow, CSV import, Open Banking, and partner invite — captured from the running app.
 
-```text
-  ┌─────────────┐     ┌──────────────┐     ┌─────────────────┐
-  │   Banks /   │────▶│   FastAPI    │────▶│  React dashboard │
-  │  CSV files  │     │  + SQLite    │     │  + advisor chat  │
-  └─────────────┘     └──────────────┘     └─────────────────┘
-         │                    │
-         │                    ▼
-         │            ┌──────────────┐
-         └───────────▶│  Categories  │
-                      │  + rules     │
-                      └──────────────┘
-```
+### Sign in / create household / join
+
+<p align="center">
+  <img src="docs/screenshots/auth.png" alt="Sign in, create household, or join with invite" width="80%" />
+</p>
+
+### Dashboard — month strategy & spend by category
+
+<p align="center">
+  <img src="docs/screenshots/dashboard.png" alt="Dashboard with month-over-month wealth, spend/save/invest plan, and category benchmarks" width="80%" />
+</p>
+
+### Dashboard — advisor, investments & wealth forecast
+
+<p align="center">
+  <img src="docs/screenshots/dashboard-wealth.png" alt="Financial advisor chat, investment balances, and accumulated wealth forecast" width="80%" />
+</p>
+
+### Transactions — money flow & ledger
+
+<p align="center">
+  <img src="docs/screenshots/transactions.png" alt="Money flow graph and transaction ledger with categorize and split" width="80%" />
+</p>
+
+### Accounts & CSV / Excel import
+
+<p align="center">
+  <img src="docs/screenshots/accounts.png" alt="CSV and Excel import wizard with balances and manual accounts" width="80%" />
+</p>
+
+### Bank auto connection
+
+<p align="center">
+  <img src="docs/screenshots/banks.png" alt="Open Banking connect UI for Revolut and Sabadell" width="80%" />
+</p>
+
+### Profile & household invite
+
+<p align="center">
+  <img src="docs/screenshots/profile.png" alt="Profile settings and household invite code" width="80%" />
+</p>
 
 ---
 
@@ -108,6 +133,8 @@ Copy `backend/.env.example` → `backend/.env` and fill only what you need.
 | Variable | Purpose |
 |---|---|
 | `SECRET_KEY` | JWT signing secret — use a long random string in any real deploy |
+| `ENV` | `development` (local) or `production` (Render). Production refuses default secrets and hides `/docs` |
+| `CORS_ORIGINS` | Comma-separated allowed origins. On Render, set to your public `https://….onrender.com` URL |
 | `BANK_PROVIDER` | `gocardless` (default) or `enable_banking` |
 | `GC_SECRET_ID` / `GC_SECRET_KEY` | GoCardless Bank Account Data credentials |
 | `ENABLE_BANKING_APP_ID` / `ENABLE_BANKING_PRIVATE_KEY_PATH` | Enable Banking app + local PEM path |
@@ -161,6 +188,29 @@ This repo is set up so **real credentials stay on your machine**:
 1. Confirm `git status` never lists `.env`, `*.pem`, or `*.db`
 2. Rotate any key that ever lived in a committed file or chat history
 3. Keep `SECRET_KEY` unique per environment
+
+---
+
+## Deploy on Render
+
+The repo includes a Docker image and [`render.yaml`](render.yaml) Blueprint that runs FastAPI + the built React app as one web service, with SQLite on a persistent disk.
+
+1. Push this repo to GitHub and open [Render Blueprints](https://dashboard.render.com/blueprints).
+2. Connect the repo and apply the Blueprint (`track-your-finances`).
+3. Set **`CORS_ORIGINS`** to your public URL, e.g. `https://track-your-finances.onrender.com` (same value after the first deploy once the hostname is known).
+4. Optional: set `DEEPSEEK_API` and bank provider secrets. For live banks, set redirect URLs to `https://<your-service>.onrender.com/api/banking/callback`.
+5. Open the service URL — visitors register their own household (JWT + bcrypt).
+
+`render.yaml` uses the **Starter** plan so SQLite can live on a persistent disk (required so accounts survive restarts). Free web services are ephemeral and will lose the database on every deploy/restart.
+
+Local Docker smoke test:
+
+```powershell
+docker build -t track-your-finances .
+docker run --rm -p 8000:8000 -e SECRET_KEY=local-docker-secret-change-me -e CORS_ORIGINS=http://127.0.0.1:8000 track-your-finances
+```
+
+Then open [http://127.0.0.1:8000](http://127.0.0.1:8000).
 
 ---
 

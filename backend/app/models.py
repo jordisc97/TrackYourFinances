@@ -77,6 +77,7 @@ class BankConnection(Base):
     institution_name: Mapped[str] = mapped_column(String(120), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default=ConnectionStatus.pending.value)
     session_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    oauth_state: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
     consent_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

@@ -1,13 +1,15 @@
 from contextlib import asynccontextmanager
 import asyncio
 import logging
+from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import inspect, text
 
-from app.config import get_settings
+from app.config import DEFAULT_SECRET_KEY, get_settings
 from app.database import Base, SessionLocal, configure_sqlite_wal, engine
 from app.routers import accounts, advisor, auth, banking, dashboard, import_csv, transactions
 from app.seed import ensure_all_household_defaults
@@ -38,6 +40,12 @@ h1{font-size:1.6rem}h2{font-size:1.1rem;margin-top:1.5rem}.muted{color:#666}</st
 </body></html>"""
 
 
+def ensure_production_secrets() -> None:
+    settings = get_settings()
+    if settings.env.lower() == "production" and settings.secret_key in {DEFAULT_SECRET_KEY, "change-me-to-a-long-random-string"}:
+        raise RuntimeError("SECRET_KEY must be set to a long random value when ENV=production")
+
+
 def ensure_schema() -> None:
     configure_sqlite_wal()
     Base.metadata.create_all(bind=engine)
@@ -47,6 +55,12 @@ def ensure_schema() -> None:
         if "location" not in cols:
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE households ADD COLUMN location VARCHAR(120) DEFAULT ''"))
+    if "bank_connections" in inspector.get_table_names():
+        cols = {c["name"] for c in inspector.get_columns("bank_connections")}
+        if "oauth_state" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE bank_connections ADD COLUMN oauth_state VARCHAR(64)"))
+                conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_bank_connections_oauth_state ON bank_connections (oauth_state)"))
     if "monthly_strategies" in inspector.get_table_names():
         cols = {c["name"] for c in inspector.get_columns("monthly_strategies")}
         legacy_asset_cols = ("crypto_pct", "stocks_pct", "etfs_pct")
@@ -87,6 +101,7 @@ def ensure_schema() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    ensure_production_secrets()
     ensure_schema()
     ensure_all_household_defaults()
     db = SessionLocal()
@@ -118,7 +133,14 @@ async def _categorize_worker(stop: asyncio.Event) -> None:
             slept += step
 
 settings = get_settings()
-app = FastAPI(title=settings.app_name, lifespan=lifespan)
+_is_production = settings.env.lower() == "production"
+app = FastAPI(
+    title=settings.app_name,
+    lifespan=lifespan,
+    docs_url=None if _is_production else "/docs",
+    redoc_url=None if _is_production else "/redoc",
+    openapi_url=None if _is_production else "/openapi.json",
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
@@ -134,10 +156,11 @@ app.include_router(banking.router)
 app.include_router(dashboard.router)
 app.include_router(advisor.router)
 
-
-@app.get("/")
-def root() -> dict[str, str]:
-    return {"status": "ok", "app": settings.app_name, "docs": "/docs", "health": "/api/health"}
+STATIC_DIR = Path(settings.static_dir)
+if not STATIC_DIR.is_absolute():
+    STATIC_DIR = Path(__file__).resolve().parent.parent / STATIC_DIR
+ASSETS_DIR = STATIC_DIR / "assets"
+INDEX_HTML = STATIC_DIR / "index.html"
 
 
 @app.get("/api/health")
@@ -153,3 +176,27 @@ def privacy() -> str:
 @app.get("/terms", response_class=HTMLResponse)
 def terms() -> str:
     return TERMS_HTML
+
+
+if ASSETS_DIR.is_dir():
+    app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
+
+
+@app.get("/")
+def spa_root():
+    if INDEX_HTML.is_file():
+        return FileResponse(INDEX_HTML)
+    return {"status": "ok", "app": settings.app_name, "docs": "/docs", "health": "/api/health"}
+
+
+@app.get("/{full_path:path}")
+def spa_fallback(full_path: str):
+    if full_path.startswith("api/") or full_path in {"docs", "redoc", "openapi.json", "privacy", "terms"}:
+        raise HTTPException(status_code=404, detail="Not found")
+    static_root = STATIC_DIR.resolve()
+    candidate = (STATIC_DIR / full_path).resolve()
+    if candidate.is_file() and (candidate == static_root or static_root in candidate.parents):
+        return FileResponse(candidate)
+    if INDEX_HTML.is_file():
+        return FileResponse(INDEX_HTML)
+    raise HTTPException(status_code=404, detail="Not found")
