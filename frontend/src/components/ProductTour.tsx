@@ -1,15 +1,17 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth";
 
-const ONBOARDING_KEY_PREFIX = "tyf_onboarding_v5";
+const ONBOARDING_KEY_PREFIX = "tyf_onboarding_v6";
 const ONBOARDING_DONE_VALUE = "1";
 const ACCOUNTS_ROUTE = "/accounts";
 const TRANSACTIONS_ROUTE = "/transactions";
 const PROFILE_ROUTE = "/household";
 const PAD_PX = 8;
 const MEASURE_INTERVAL_MS = 120;
-const SPOTLIGHT_RADIUS_PX = 12;
+const SPOTLIGHT_RADIUS_PX = 14;
+const TOUR_Z = 10000;
 
 type TourStep = {
   id: string;
@@ -24,12 +26,12 @@ const TOUR_STEPS: TourStep[] = [
   {
     id: "welcome",
     title: "Welcome To TrackYourFinances",
-    body: "Two ways to connect banks: upload a file, or sync automatically. We will walk the app left to right, starting with the Dashboard.",
+    body: "Two ways to connect banks: upload a file, or sync automatically. We will walk the app from Dashboard through Profile.",
   },
   {
     id: "dashboard",
     title: "Dashboard",
-    body: "Household wealth, spending, and location-aware category benchmarks in one overview.",
+    body: "Start here for household wealth, month strategy, and location-aware category benchmarks.",
     target: "nav-dashboard",
     route: "/",
   },
@@ -50,7 +52,7 @@ const TOUR_STEPS: TourStep[] = [
   {
     id: "accounts",
     title: "Accounts File Connection",
-    body: "Create an account and import a bank CSV or Excel export — no live bank login required.",
+    body: "Create an account and import a bank CSV or Excel export. No live bank login required.",
     target: "nav-accounts",
     route: ACCOUNTS_ROUTE,
   },
@@ -78,7 +80,7 @@ const TOUR_STEPS: TourStep[] = [
   {
     id: "location",
     title: "Where You Live",
-    body: "Type your city and country (for example Barcelona, Spain), then Save profile. We rebuild Spend-by-category typicals for that place and your income — it can take a few seconds.",
+    body: "Type your city and country (for example Barcelona, Spain), then Save profile. We rebuild Spend-by-category typicals for that place and your income. It can take a few seconds.",
     target: "profile-location",
     route: PROFILE_ROUTE,
     interactive: true,
@@ -111,6 +113,7 @@ function readTargetRect(target: string | undefined): SpotlightRect | null {
   const el = document.querySelector(`[data-tour="${target}"]`);
   if (!el) return null;
   const box = el.getBoundingClientRect();
+  if (box.width < 1 && box.height < 1) return null;
   return { top: box.top - PAD_PX, left: box.left - PAD_PX, width: box.width + PAD_PX * 2, height: box.height + PAD_PX * 2 };
 }
 
@@ -135,8 +138,11 @@ export function ProductTour() {
   const [rect, setRect] = useState<SpotlightRect | null>(null);
 
   useEffect(() => {
-    if (!user) return;
-    if (!isOnboardingComplete(user.id)) setActive(true);
+    if (!user) {
+      setActive(false);
+      return;
+    }
+    setActive(!isOnboardingComplete(user.id));
   }, [user]);
 
   const step = TOUR_STEPS[stepIndex];
@@ -188,8 +194,8 @@ export function ProductTour() {
     ? { top: Math.min(rect.top + rect.height + 12, window.innerHeight - 220), left: Math.max(16, Math.min(rect.left, window.innerWidth - 360)) }
     : undefined;
 
-  return (
-    <div className="product-tour" role="dialog" aria-modal="true" aria-labelledby="product-tour-title">
+  return createPortal(
+    <div className="product-tour" role="dialog" aria-modal="true" aria-labelledby="product-tour-title" style={{ zIndex: TOUR_Z }}>
       {rect && !step.interactive && <div className="product-tour-catcher" />}
       {!rect && <div className="product-tour-backdrop" />}
       {rect && (
@@ -207,6 +213,7 @@ export function ProductTour() {
           <button type="button" onClick={goNext}>{stepIndex >= LAST_STEP_INDEX ? FINISH_LABEL : NEXT_LABEL}</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
