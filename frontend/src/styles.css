@@ -596,6 +596,38 @@ select option, select optgroup {
 }
 .csv-create-row input { flex: 1; min-width: 180px; }
 .csv-create-row button { flex-shrink: 0; }
+.csv-account-mode {
+  display: inline-flex;
+  gap: 0.35rem;
+  margin: 0.35rem 0 0.15rem;
+  padding: 0.2rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--input);
+}
+.csv-account-mode-btn {
+  padding: 0.4rem 0.85rem;
+  font-size: 0.85rem;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
+  transform: none;
+}
+.csv-account-mode-btn:hover {
+  transform: none;
+  box-shadow: none;
+  color: var(--ink);
+  background: var(--hover);
+}
+.csv-account-mode-btn.is-selected {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+.csv-import.is-setup {
+  outline: 2px solid var(--accent);
+  box-shadow: 0 0 0 6px var(--accent-soft), var(--shadow);
+}
 .csv-file {
   position: relative;
   display: flex;
@@ -724,6 +756,16 @@ select option, select optgroup {
   gap: 0.25rem;
 }
 .ledger-search-filter input { width: 100%; }
+.ledger-categorize-btn {
+  flex: 0 0 auto;
+  padding: 0.55rem 1rem;
+  white-space: nowrap;
+}
+.ledger-toolbar {
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
 .ledger-panel {
   position: relative;
   overflow: hidden;
@@ -1045,5 +1087,83 @@ select option, select optgroup {
   .flow-svg { min-height: 260px; }
   .flow-toolbar { grid-template-columns: 1fr; }
   .flow-quick-add { grid-template-columns: 1fr; }
+}
+
+.product-tour {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  pointer-events: none;
+}
+.product-tour-catcher {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  z-index: 80;
+}
+.product-tour-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(6, 10, 16, 0.62);
+  pointer-events: auto;
+  z-index: 80;
+}
+.product-tour-spotlight {
+  position: fixed;
+  z-index: 81;
+  box-shadow: 0 0 0 9999px rgba(6, 10, 16, 0.62);
+  outline: 2px solid var(--accent);
+  pointer-events: none;
+  transition: top 160ms ease, left 160ms ease, width 160ms ease, height 160ms ease;
+}
+.product-tour-card {
+  position: fixed;
+  z-index: 82;
+  width: min(22rem, calc(100vw - 2rem));
+  padding: 1.1rem 1.2rem 1.15rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-solid);
+  box-shadow: var(--shadow);
+  pointer-events: auto;
+}
+.product-tour-card.is-centered {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+.product-tour-card.is-anchored { transform: none; }
+.product-tour-progress {
+  margin: 0 0 0.35rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.product-tour-card h2 {
+  margin: 0 0 0.45rem;
+  font-family: var(--display);
+  font-size: 1.25rem;
+  letter-spacing: -0.02em;
+}
+.product-tour-body {
+  margin: 0 0 1rem;
+  color: var(--muted);
+  line-height: 1.45;
+  font-size: 0.95rem;
+}
+.product-tour-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+@media (max-width: 640px) {
+  .product-tour-card.is-anchored {
+    left: 1rem !important;
+    right: 1rem;
+    width: auto;
+    top: auto !important;
+    bottom: 1rem;
+  }
 }
 

@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, type Account, type Category, type Transaction } from "../api";
+import { useAuth } from "../auth";
+import { markOnboardingComplete } from "../components/ProductTour";
 import { amountClass, amountTone, euro, ledgerAmountTone, ledgerDisplayAmount, parseEmployerNames, portionKind } from "../format";
 
 const ACCOUNT_UNSET = "" as const;
@@ -9,8 +12,14 @@ const IMPORT_PHASE_CATEGORIZING = "categorizing";
 const TIMER_TICK_MS = 250;
 const IMPORT_MODE_APPEND = "append";
 const IMPORT_MODE_REPLACE = "replace";
+const ACCOUNT_MODE_EXISTING = "existing";
+const ACCOUNT_MODE_CREATE = "create";
 const DEFAULT_CSV_ACCOUNT_NAME = "CSV checking";
 const DEFAULT_CSV_INSTITUTION = "CSV import";
+const ACCOUNT_NAME_PLACEHOLDER = "e.g. Everyday checking";
+const SETUP_QUERY_KEY = "setup";
+const SETUP_QUERY_VALUE = "1";
+const TRANSACTIONS_PATH = "/transactions";
 const EMPLOYER_PLACEHOLDER = "PayPal, HP, …";
 const DEFAULT_PORTION_A_LABEL = "Me";
 const DEFAULT_PORTION_B_LABEL = "Partner";
@@ -23,6 +32,17 @@ const LEDGER_SEARCH_LABEL = "Search";
 const LEDGER_SEARCH_PLACEHOLDER = "Merchant or description…";
 const SPLIT_MATCH_MESSAGE = "Nice math skills";
 const SPLIT_BALANCE_TOLERANCE = 0.02;
+const USE_EXISTING_LABEL = "Use existing";
+const CREATE_NEW_LABEL = "Create new";
+const CREATE_ACCOUNT_HINT = "Name the new account. Import will create it, then load your file.";
+const EMPTY_ACCOUNTS_HINT = "No accounts yet. Type a name below, choose your file, then Import and categorize.";
+const NEED_ACCOUNT_OR_NAME_MESSAGE = "Name a new account or select an existing one, and choose a CSV/Excel file before importing.";
+const CREATE_ACCOUNT_LABEL = "Create account";
+const CREATING_ACCOUNT_LABEL = "Creating…";
+const CATEGORIZE_BUTTON_LABEL = "Categorize";
+const CATEGORIZING_BUTTON_LABEL = "Categorizing…";
+const CATEGORIZE_DONE_MESSAGE = (count: number) => (count === 1 ? "Categorized 1 transaction." : `Categorized ${count} transactions.`);
+const CATEGORIZE_NONE_MESSAGE = "No uncategorized transactions matched rules or AI.";
 
 type SplitDraft = { label: string; amount: string; category_id: number | "" };
 type LedgerMonthOption = { value: string; label: string };
@@ -68,6 +88,10 @@ function defaultDrafts(tx: Transaction): SplitDraft[] {
 }
 
 export function TransactionsPage() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const setupMode = searchParams.get(SETUP_QUERY_KEY) === SETUP_QUERY_VALUE;
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -78,13 +102,16 @@ export function TransactionsPage() {
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"ok" | "error" | "">("");
   const [accountId, setAccountId] = useState<number | typeof ACCOUNT_UNSET>(ACCOUNT_UNSET);
+  const [accountMode, setAccountMode] = useState<typeof ACCOUNT_MODE_EXISTING | typeof ACCOUNT_MODE_CREATE>(ACCOUNT_MODE_EXISTING);
   const [file, setFile] = useState<File | null>(null);
   const [importMode, setImportMode] = useState<typeof IMPORT_MODE_APPEND | typeof IMPORT_MODE_REPLACE>(IMPORT_MODE_APPEND);
   const [busy, setBusy] = useState(false);
   const [importPhase, setImportPhase] = useState<typeof IMPORT_PHASE_IDLE | typeof IMPORT_PHASE_IMPORTING | typeof IMPORT_PHASE_CATEGORIZING>(IMPORT_PHASE_IDLE);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
-  const [newAccountName, setNewAccountName] = useState(DEFAULT_CSV_ACCOUNT_NAME);
+  const importPanelRef = useRef<HTMLDivElement | null>(null);
+  const accountNameRef = useRef<HTMLInputElement | null>(null);
+  const [newAccountName, setNewAccountName] = useState("");
   const [creatingAccount, setCreatingAccount] = useState(false);
   const [employerNames, setEmployerNames] = useState("");
   const [splittingId, setSplittingId] = useState<number | null>(null);
@@ -93,7 +120,9 @@ export function TransactionsPage() {
 
   const selectedAccount = accounts.find((account) => account.id === accountId);
   const overwrite = importMode === IMPORT_MODE_REPLACE;
-  const canImport = Boolean(file && accountId !== ACCOUNT_UNSET && !busy);
+  const showCreateAccount = accountMode === ACCOUNT_MODE_CREATE || accounts.length === 0;
+  const canCreateDuringImport = showCreateAccount && Boolean(newAccountName.trim());
+  const canImport = Boolean(file && !busy && (canCreateDuringImport || (!showCreateAccount && accountId !== ACCOUNT_UNSET)));
   const splittingTx = transactions.find((tx) => tx.id === splittingId) ?? null;
   const draftTotal = splitDrafts.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
   const splitTarget = splittingTx ? Math.abs(splittingTx.amount) : 0;
@@ -112,7 +141,8 @@ export function TransactionsPage() {
     setTransactions(txs);
     setCategories(cats);
     setAccounts(accs);
-    if (accs.length === 1) setAccountId(accs[0].id);
+    if (accs.length === 0) setAccountMode(ACCOUNT_MODE_CREATE);
+    if (!setupMode && accs.length === 1) setAccountId(accs[0].id);
     else if (accountId !== ACCOUNT_UNSET && !accs.some((account) => account.id === accountId)) setAccountId(ACCOUNT_UNSET);
   }
 
@@ -123,17 +153,24 @@ export function TransactionsPage() {
     return result.companies;
   }
 
-  async function createImportAccount() {
+  async function createImportAccount(options?: { quiet?: boolean }) {
     const name = newAccountName.trim() || DEFAULT_CSV_ACCOUNT_NAME;
     setCreatingAccount(true);
     const created = await api.createAccount({ name, institution: DEFAULT_CSV_INSTITUTION, account_type: "checking", source: "csv", currency: "EUR" });
-    const companies = await saveEmployersIfAny();
     setAccounts((current) => [...current, created]);
     setAccountId(created.id);
-    setMessageTone("ok");
-    const employerNote = companies.length ? ` Employers saved: ${companies.join(", ")}.` : "";
-    setMessage(`Created account “${created.name}”. You can import a CSV into it now.${employerNote}`);
+    setAccountMode(ACCOUNT_MODE_EXISTING);
+    setNewAccountName("");
+    if (user) markOnboardingComplete(user.id);
+    if (setupMode) navigate(TRANSACTIONS_PATH, { replace: true });
+    if (!options?.quiet) {
+      const companies = await saveEmployersIfAny();
+      setMessageTone("ok");
+      const employerNote = companies.length ? ` Employers saved: ${companies.join(", ")}.` : "";
+      setMessage(`Created account “${created.name}”. You can import a CSV into it now.${employerNote}`);
+    }
     setCreatingAccount(false);
+    return created;
   }
 
   useEffect(() => {
@@ -144,7 +181,14 @@ export function TransactionsPage() {
 
   useEffect(() => {
     load().catch((err: Error) => { setMessageTone("error"); setMessage(err.message); });
-  }, [onlyUncategorized, ledgerMonth, ledgerSearchQuery]);
+  }, [onlyUncategorized, ledgerMonth, ledgerSearchQuery, setupMode]);
+
+  useEffect(() => {
+    if (!setupMode) return;
+    setAccountMode(ACCOUNT_MODE_CREATE);
+    importPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    window.setTimeout(() => accountNameRef.current?.focus(), 280);
+  }, [setupMode]);
 
   useEffect(() => {
     if (!busy) {
@@ -213,15 +257,42 @@ export function TransactionsPage() {
     await load();
   }
 
+  async function categorizeLedger() {
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setBusy(true);
+    setImportPhase(IMPORT_PHASE_CATEGORIZING);
+    setMessage("");
+    setMessageTone("");
+    const result = await api.classifyTransactions(undefined, controller.signal);
+    setMessageTone("ok");
+    setMessage(result.categorized > 0 ? CATEGORIZE_DONE_MESSAGE(result.categorized) : CATEGORIZE_NONE_MESSAGE);
+    await load();
+    abortRef.current = null;
+    setImportPhase(IMPORT_PHASE_IDLE);
+    setBusy(false);
+  }
+
   async function onImport(event: FormEvent) {
     event.preventDefault();
-    if (!file || accountId === ACCOUNT_UNSET) {
+    if (!file) {
       setMessageTone("error");
-      setMessage("Select an account and a CSV/Excel file before importing.");
+      setMessage(NEED_ACCOUNT_OR_NAME_MESSAGE);
       return;
     }
+    let targetAccount = selectedAccount ?? null;
+    let importAccountId = accountId === ACCOUNT_UNSET ? null : accountId;
+    if (showCreateAccount || importAccountId === null) {
+      if (!newAccountName.trim()) {
+        setMessageTone("error");
+        setMessage(NEED_ACCOUNT_OR_NAME_MESSAGE);
+        return;
+      }
+      targetAccount = await createImportAccount({ quiet: true });
+      importAccountId = targetAccount.id;
+    }
     if (overwrite) {
-      const confirmed = window.confirm(`Replace every transaction on “${selectedAccount?.name ?? "this account"}” with this file? Existing rows on that account will be deleted.`);
+      const confirmed = window.confirm(`Replace every transaction on “${targetAccount?.name ?? "this account"}” with this file? Existing rows on that account will be deleted.`);
       if (!confirmed) return;
     }
     const controller = new AbortController();
@@ -231,17 +302,16 @@ export function TransactionsPage() {
     setMessage("");
     setMessageTone("");
     const companies = await saveEmployersIfAny();
-    const selectedId = Number(accountId);
-    const result = await api.importCsv(selectedId, file, overwrite, controller.signal);
+    const result = await api.importCsv(importAccountId, file, overwrite, controller.signal);
     const parts = [`Imported ${result.imported}`, `skipped ${result.skipped}`];
     if (result.overwrite) parts.push(`replaced ${result.replaced}`);
     if (result.categorized > 0) parts.push(`${result.categorized} matched by rules`);
     if (companies.length) parts.push(`wages from ${companies.join(", ")}`);
     setImportPhase(IMPORT_PHASE_CATEGORIZING);
-    const classifyResult = await api.classifyTransactions(selectedId, controller.signal);
+    const classifyResult = await api.classifyTransactions(importAccountId, controller.signal);
     parts.push(`categorized ${classifyResult.categorized}`);
     setMessageTone("ok");
-    setMessage(`${parts.join(" · ")} → ${selectedAccount?.name ?? "account"}`);
+    setMessage(`${parts.join(" · ")} → ${targetAccount?.name ?? "account"}`);
     setFile(null);
     setImportMode(IMPORT_MODE_APPEND);
     await load();
@@ -257,7 +327,7 @@ export function TransactionsPage() {
         <p>Classify spending, split shared bills, import bank CSVs, and grow rules from one-click assigns.</p>
       </section>
 
-      <div className={`panel csv-import${busy ? " is-busy" : ""}`} style={{ marginBottom: "1rem" }}>
+      <div ref={importPanelRef} data-tour="csv-import" className={`panel csv-import${busy ? " is-busy" : ""}${setupMode ? " is-setup" : ""}`} style={{ marginBottom: "1rem" }}>
         <div className="csv-import-head">
           <div>
             <h2>Import bank CSV/Excel</h2>
@@ -265,18 +335,24 @@ export function TransactionsPage() {
           </div>
         </div>
 
-        <form className="csv-import-form" onSubmit={(e) => onImport(e).catch((err: unknown) => { abortRef.current = null; setBusy(false); setImportPhase(IMPORT_PHASE_IDLE); const aborted = err instanceof DOMException && err.name === "AbortError"; setMessageTone(aborted ? "ok" : "error"); setMessage(aborted ? "Stopped waiting. Refresh the ledger to see what finished." : err instanceof Error ? err.message : String(err)); })}>
+        <form className="csv-import-form" onSubmit={(e) => onImport(e).catch((err: unknown) => { abortRef.current = null; setBusy(false); setCreatingAccount(false); setImportPhase(IMPORT_PHASE_IDLE); const aborted = err instanceof DOMException && err.name === "AbortError"; setMessageTone(aborted ? "ok" : "error"); setMessage(aborted ? "Stopped waiting. Refresh the ledger to see what finished." : err instanceof Error ? err.message : String(err)); })}>
           <div className="csv-step">
             <span className="csv-step-num" aria-hidden="true">1</span>
             <div className="csv-step-body">
               <span className="csv-label">Account</span>
               <span className="csv-hint">Which account should receive these transactions?</span>
-              {accounts.length === 0 ? (
+              {accounts.length > 0 && (
+                <div className="csv-account-mode" role="group" aria-label="Account source">
+                  <button type="button" className={`csv-account-mode-btn${accountMode === ACCOUNT_MODE_EXISTING ? " is-selected" : ""}`} disabled={busy} onClick={() => setAccountMode(ACCOUNT_MODE_EXISTING)}>{USE_EXISTING_LABEL}</button>
+                  <button type="button" className={`csv-account-mode-btn${accountMode === ACCOUNT_MODE_CREATE ? " is-selected" : ""}`} disabled={busy} onClick={() => setAccountMode(ACCOUNT_MODE_CREATE)}>{CREATE_NEW_LABEL}</button>
+                </div>
+              )}
+              {showCreateAccount ? (
                 <div className="csv-create-account">
-                  <p className="csv-empty">No accounts yet. Create one to import into — or add accounts under Accounts / Banks first.</p>
+                  <p className="csv-empty">{accounts.length === 0 ? EMPTY_ACCOUNTS_HINT : CREATE_ACCOUNT_HINT}</p>
                   <div className="csv-create-row">
-                    <input value={newAccountName} onChange={(e) => setNewAccountName(e.target.value)} placeholder="Account name" disabled={busy || creatingAccount} required />
-                    <button type="button" className="secondary" disabled={busy || creatingAccount} onClick={() => createImportAccount().catch((err: Error) => { setCreatingAccount(false); setMessageTone("error"); setMessage(err.message); })}>{creatingAccount ? "Creating…" : "Create account"}</button>
+                    <input ref={accountNameRef} value={newAccountName} onChange={(e) => setNewAccountName(e.target.value)} placeholder={ACCOUNT_NAME_PLACEHOLDER} disabled={busy || creatingAccount} required />
+                    <button type="button" className="secondary" disabled={busy || creatingAccount || !newAccountName.trim()} onClick={() => createImportAccount().catch((err: Error) => { setCreatingAccount(false); setMessageTone("error"); setMessage(err.message); })}>{creatingAccount ? CREATING_ACCOUNT_LABEL : CREATE_ACCOUNT_LABEL}</button>
                   </div>
                 </div>
               ) : (
@@ -351,7 +427,7 @@ export function TransactionsPage() {
       </div>
 
       <div className={`panel ledger-panel${busy ? " is-busy" : ""}`}>
-        <div className="row" style={{ marginBottom: "0.75rem" }}>
+        <div className="row ledger-toolbar" style={{ marginBottom: "0.75rem" }}>
           <h2 style={{ flex: 2 }}>Ledger</h2>
           <label className="ledger-month-filter">
             <span className="muted">Month</span>
@@ -367,6 +443,14 @@ export function TransactionsPage() {
             <input type="checkbox" checked={onlyUncategorized} onChange={(e) => setOnlyUncategorized(e.target.checked)} disabled={busy} />
             Uncategorized inbox
           </label>
+          <button
+            type="button"
+            className="ledger-categorize-btn"
+            disabled={busy}
+            onClick={() => categorizeLedger().catch((err: unknown) => { abortRef.current = null; setBusy(false); setImportPhase(IMPORT_PHASE_IDLE); const aborted = err instanceof DOMException && err.name === "AbortError"; setMessageTone(aborted ? "ok" : "error"); setMessage(aborted ? "Stopped waiting. Refresh the ledger to see what finished." : err instanceof Error ? err.message : String(err)); })}
+          >
+            {busy && importPhase === IMPORT_PHASE_CATEGORIZING ? CATEGORIZING_BUTTON_LABEL : CATEGORIZE_BUTTON_LABEL}
+          </button>
           <span className="muted">{transactions.length >= 200 ? "Showing latest 200" : `${transactions.length} shown`}</span>
         </div>
         <div className={`ledger-body${busy ? " is-obscured" : ""}`}>
