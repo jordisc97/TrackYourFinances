@@ -27,6 +27,8 @@ DEFAULT_CATEGORIES = [
     ("Transfer", "transfer", "#7A7A7A"),
     ("Income", "income", "#2D6A4F"),
     ("Investment", "investment", "#1B4332"),
+    ("Dividend", "investment", "#40916C"),
+    ("Management Fee", "investment", "#52796F"),
 ]
 
 # (category_name, pattern, match_type, priority) — ES/EU merchants first.

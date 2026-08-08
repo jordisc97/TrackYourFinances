@@ -330,6 +330,29 @@ class ImportResult(BaseModel):
     categorized: int = 0
     account_id: int
     overwrite: bool = False
+    account_type: str | None = None
+    format_detected: str | None = None
+    contributions: float | None = None
+    purchases: float | None = None
+    dividends: float | None = None
+    management_fees: float | None = None
+    securities: int | None = None
+    currency: str | None = None
+    unknown_types: list[str] = []
+    transactions: int | None = None
+
+
+class RevolutImportPreview(BaseModel):
+    account_type: str = "investment"
+    format_detected: str
+    transactions: int
+    contributions: float
+    purchases: float
+    dividends: float
+    management_fees: float
+    securities: int
+    currency: str
+    unknown_types: list[str] = []
 
 
 class ClassifyResult(BaseModel):

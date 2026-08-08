@@ -62,7 +62,36 @@ export type Dashboard = {
   benchmark_location?: string; benchmark_source?: string;
 };
 
-export type ImportResult = { imported: number; skipped: number; replaced: number; categorized: number; account_id: number; overwrite: boolean };
+export type ImportResult = {
+  imported: number;
+  skipped: number;
+  replaced: number;
+  categorized: number;
+  account_id: number;
+  overwrite: boolean;
+  account_type?: string | null;
+  format_detected?: string | null;
+  contributions?: number | null;
+  purchases?: number | null;
+  dividends?: number | null;
+  management_fees?: number | null;
+  securities?: number | null;
+  currency?: string | null;
+  unknown_types?: string[];
+  transactions?: number | null;
+};
+export type RevolutImportPreview = {
+  account_type: string;
+  format_detected: string;
+  transactions: number;
+  contributions: number;
+  purchases: number;
+  dividends: number;
+  management_fees: number;
+  securities: number;
+  currency: string;
+  unknown_types: string[];
+};
 export type ClassifyResult = { categorized: number; account_id: number | null };
 export type AdvisorChatMessage = { role: "user" | "assistant"; content: string };
 export type AdvisorActionResult = {
@@ -169,6 +198,13 @@ export const api = {
   unsplitTransaction: (id: number) => request<Transaction>(`/api/transactions/${id}/split`, { method: "DELETE" }),
   importCsv: (accountId: number, file: File, overwrite = false, signal?: AbortSignal) =>
     uploadCsv("/api/import/csv", accountId, file, overwrite, signal),
+  previewRevolutCsv: (file: File, signal?: AbortSignal) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<RevolutImportPreview>("/api/import/revolut-preview", { method: "POST", body: form, signal });
+  },
+  importRevolutCsv: (accountId: number, file: File, overwrite = false, signal?: AbortSignal) =>
+    uploadCsv("/api/import/revolut-csv", accountId, file, overwrite, signal),
   classifyTransactions: (accountId?: number, signal?: AbortSignal) => {
     const suffix = accountId != null ? `?account_id=${accountId}` : "";
     return request<ClassifyResult>(`/api/transactions/classify${suffix}`, { method: "POST", signal });

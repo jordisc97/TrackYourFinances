@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { api, type Account } from "../api";
+import { api, type Account, type RevolutImportPreview } from "../api";
 import { useAuth } from "../auth";
 import { markOnboardingComplete } from "../components/ProductTour";
 import { euro, parseEmployerNames } from "../format";
 
 const ACCOUNT_TYPE_INVESTMENT = "investment";
+const ACCOUNT_TYPE_CHECKING = "checking";
+const IMPORT_ACCOUNT_TYPE_CHECKING = "checking";
+const IMPORT_ACCOUNT_TYPE_INVESTMENT = "investment";
 const DEFAULT_SNP_ACCOUNT_NAME = "S&P 500";
 const DEFAULT_SNP_INSTITUTION = "Index DCA";
 const IMPORT_MODE_APPEND = "append";
@@ -19,8 +22,10 @@ const TIMER_TICK_MS = 250;
 const ACCOUNT_MODE_EXISTING = "existing";
 const ACCOUNT_MODE_CREATE = "create";
 const DEFAULT_CSV_ACCOUNT_NAME = "CSV checking";
+const DEFAULT_INVEST_CSV_ACCOUNT_NAME = "Revolut Robo-Advisor";
 const DEFAULT_CSV_INSTITUTION = "CSV import";
 const ACCOUNT_NAME_PLACEHOLDER = "e.g. Everyday checking";
+const INVEST_ACCOUNT_NAME_PLACEHOLDER = "e.g. Revolut Robo-Advisor";
 const SETUP_QUERY_KEY = "setup";
 const SETUP_QUERY_VALUE = "1";
 const ACCOUNTS_PATH = "/accounts";
@@ -67,6 +72,9 @@ export function AccountsPage() {
   const [accountId, setAccountId] = useState<number | typeof ACCOUNT_UNSET>(ACCOUNT_UNSET);
   const [accountMode, setAccountMode] = useState<typeof ACCOUNT_MODE_EXISTING | typeof ACCOUNT_MODE_CREATE>(ACCOUNT_MODE_EXISTING);
   const [file, setFile] = useState<File | null>(null);
+  const [importAccountType, setImportAccountType] = useState<typeof IMPORT_ACCOUNT_TYPE_CHECKING | typeof IMPORT_ACCOUNT_TYPE_INVESTMENT>(IMPORT_ACCOUNT_TYPE_CHECKING);
+  const [revolutPreview, setRevolutPreview] = useState<RevolutImportPreview | null>(null);
+  const [previewBusy, setPreviewBusy] = useState(false);
   const [importMode, setImportMode] = useState<typeof IMPORT_MODE_APPEND | typeof IMPORT_MODE_REPLACE>(IMPORT_MODE_APPEND);
   const [busy, setBusy] = useState(false);
   const [importPhase, setImportPhase] = useState<typeof IMPORT_PHASE_IDLE | typeof IMPORT_PHASE_IMPORTING | typeof IMPORT_PHASE_CATEGORIZING>(IMPORT_PHASE_IDLE);
@@ -77,11 +85,13 @@ export function AccountsPage() {
   const importPanelRef = useRef<HTMLDivElement | null>(null);
   const accountNameRef = useRef<HTMLInputElement | null>(null);
 
+  const isInvestmentImport = importAccountType === IMPORT_ACCOUNT_TYPE_INVESTMENT;
+  const importableAccounts = isInvestmentImport ? accounts.filter((account) => account.account_type === ACCOUNT_TYPE_INVESTMENT) : accounts;
   const investmentAccounts = accounts.filter((account) => account.account_type === ACCOUNT_TYPE_INVESTMENT);
   const selectedInvestAccount = investmentAccounts.find((account) => account.id === investAccountId);
-  const selectedAccount = accounts.find((account) => account.id === accountId);
+  const selectedAccount = importableAccounts.find((account) => account.id === accountId);
   const overwrite = importMode === IMPORT_MODE_REPLACE;
-  const showCreateAccount = accountMode === ACCOUNT_MODE_CREATE || accounts.length === 0;
+  const showCreateAccount = accountMode === ACCOUNT_MODE_CREATE || importableAccounts.length === 0;
   const canCreateDuringImport = showCreateAccount && Boolean(newAccountName.trim());
   const canImport = Boolean(file && !busy && (canCreateDuringImport || (!showCreateAccount && accountId !== ACCOUNT_UNSET)));
 
@@ -105,9 +115,11 @@ export function AccountsPage() {
   }
 
   async function createImportAccount(options?: { quiet?: boolean }) {
-    const accountName = newAccountName.trim() || DEFAULT_CSV_ACCOUNT_NAME;
+    const defaultName = isInvestmentImport ? DEFAULT_INVEST_CSV_ACCOUNT_NAME : DEFAULT_CSV_ACCOUNT_NAME;
+    const accountName = newAccountName.trim() || defaultName;
+    const createdType = isInvestmentImport ? ACCOUNT_TYPE_INVESTMENT : ACCOUNT_TYPE_CHECKING;
     setCreatingAccount(true);
-    const created = await api.createAccount({ name: accountName, institution: DEFAULT_CSV_INSTITUTION, account_type: "checking", source: "csv", currency: "EUR" });
+    const created = await api.createAccount({ name: accountName, institution: DEFAULT_CSV_INSTITUTION, account_type: createdType, source: "csv", currency: "EUR" });
     setAccounts((current) => [...current, created]);
     setAccountId(created.id);
     setAccountMode(ACCOUNT_MODE_EXISTING);
@@ -122,6 +134,15 @@ export function AccountsPage() {
     }
     setCreatingAccount(false);
     return created;
+  }
+
+  async function loadRevolutPreview(nextFile: File | null) {
+    setRevolutPreview(null);
+    if (!nextFile || importAccountType !== IMPORT_ACCOUNT_TYPE_INVESTMENT) return;
+    setPreviewBusy(true);
+    const preview = await api.previewRevolutCsv(nextFile);
+    setRevolutPreview(preview);
+    setPreviewBusy(false);
   }
 
   useEffect(() => {
@@ -270,6 +291,27 @@ export function AccountsPage() {
     setImportPhase(IMPORT_PHASE_IMPORTING);
     setMessage("");
     setMessageTone("");
+    if (isInvestmentImport) {
+      const result = await api.importRevolutCsv(importAccountId, file, overwrite, controller.signal);
+      const parts = [`Imported ${result.imported}`, `skipped ${result.skipped}`];
+      if (result.overwrite) parts.push(`replaced ${result.replaced}`);
+      if (result.format_detected) parts.push(result.format_detected);
+      if (result.contributions != null) parts.push(`contributions ${euro.format(result.contributions)}`);
+      if (result.purchases != null) parts.push(`purchases ${euro.format(result.purchases)}`);
+      if (result.dividends != null) parts.push(`dividends ${euro.format(result.dividends)}`);
+      if (result.management_fees != null) parts.push(`fees ${euro.format(result.management_fees)}`);
+      if (result.unknown_types?.length) parts.push(`unknown: ${result.unknown_types.join(", ")}`);
+      setMessageTone("ok");
+      setMessage(`${parts.join(" · ")} → ${targetAccount?.name ?? "account"}`);
+      setFile(null);
+      setRevolutPreview(null);
+      setImportMode(IMPORT_MODE_APPEND);
+      await loadAccounts();
+      abortRef.current = null;
+      setImportPhase(IMPORT_PHASE_IDLE);
+      setBusy(false);
+      return;
+    }
     const companies = await saveEmployersIfAny();
     const result = await api.importCsv(importAccountId, file, overwrite, controller.signal);
     const parts = [`Imported ${result.imported}`, `skipped ${result.skipped}`];
@@ -299,18 +341,30 @@ export function AccountsPage() {
       <div ref={importPanelRef} data-tour="csv-import" className={`panel csv-import${busy ? " is-busy" : ""}${setupMode ? " is-setup" : ""}`} style={{ marginBottom: "1rem" }}>
         <div className="csv-import-head">
           <div>
-            <h2>Import bank CSV/Excel</h2>
-            <p className="muted">Create or pick an account, then load a bank export. Rows import first; categories are assigned next.</p>
+            <h2>Import CSV/Excel</h2>
+            <p className="muted">Choose Checking for bank exports, or Investment for Revolut Robo-Advisor activity CSVs.</p>
           </div>
         </div>
 
-        <form className="csv-import-form" onSubmit={(e) => onImport(e).catch((err: unknown) => { abortRef.current = null; setBusy(false); setCreatingAccount(false); setImportPhase(IMPORT_PHASE_IDLE); const aborted = err instanceof DOMException && err.name === "AbortError"; setMessageTone(aborted ? "ok" : "error"); setMessage(aborted ? "Stopped waiting. Refresh to see what finished." : err instanceof Error ? err.message : String(err)); })}>
+        <form className="csv-import-form" onSubmit={(e) => onImport(e).catch((err: unknown) => { abortRef.current = null; setBusy(false); setCreatingAccount(false); setPreviewBusy(false); setImportPhase(IMPORT_PHASE_IDLE); const aborted = err instanceof DOMException && err.name === "AbortError"; setMessageTone(aborted ? "ok" : "error"); setMessage(aborted ? "Stopped waiting. Refresh to see what finished." : err instanceof Error ? err.message : String(err)); })}>
           <div className="csv-step">
             <span className="csv-step-num" aria-hidden="true">1</span>
             <div className="csv-step-body">
+              <span className="csv-label">Account type</span>
+              <span className="csv-hint">Checking uses the bank importer. Investment uses the Revolut Robo-Advisor activity parser.</span>
+              <div className="csv-account-mode" role="group" aria-label="Import account type">
+                <button type="button" className={`csv-account-mode-btn${importAccountType === IMPORT_ACCOUNT_TYPE_CHECKING ? " is-selected" : ""}`} disabled={busy} onClick={() => { setImportAccountType(IMPORT_ACCOUNT_TYPE_CHECKING); setRevolutPreview(null); setAccountId(ACCOUNT_UNSET); }}>{ACCOUNT_TYPE_CHECKING}</button>
+                <button type="button" className={`csv-account-mode-btn${importAccountType === IMPORT_ACCOUNT_TYPE_INVESTMENT ? " is-selected" : ""}`} disabled={busy} onClick={() => { setImportAccountType(IMPORT_ACCOUNT_TYPE_INVESTMENT); setAccountId(ACCOUNT_UNSET); if (file) loadRevolutPreview(file).catch((err: Error) => { setPreviewBusy(false); setMessageTone("error"); setMessage(err.message); }); }}>{ACCOUNT_TYPE_INVESTMENT}</button>
+              </div>
+            </div>
+          </div>
+
+          <div className="csv-step">
+            <span className="csv-step-num" aria-hidden="true">2</span>
+            <div className="csv-step-body">
               <span className="csv-label">Account</span>
               <span className="csv-hint">Which account should receive these transactions?</span>
-              {accounts.length > 0 && (
+              {importableAccounts.length > 0 && (
                 <div className="csv-account-mode" role="group" aria-label="Account source">
                   <button type="button" className={`csv-account-mode-btn${accountMode === ACCOUNT_MODE_EXISTING ? " is-selected" : ""}`} disabled={busy} onClick={() => setAccountMode(ACCOUNT_MODE_EXISTING)}>{USE_EXISTING_LABEL}</button>
                   <button type="button" className={`csv-account-mode-btn${accountMode === ACCOUNT_MODE_CREATE ? " is-selected" : ""}`} disabled={busy} onClick={() => setAccountMode(ACCOUNT_MODE_CREATE)}>{CREATE_NEW_LABEL}</button>
@@ -318,45 +372,63 @@ export function AccountsPage() {
               )}
               {showCreateAccount ? (
                 <div className="csv-create-account">
-                  <p className="csv-empty">{accounts.length === 0 ? EMPTY_ACCOUNTS_HINT : CREATE_ACCOUNT_HINT}</p>
+                  <p className="csv-empty">{importableAccounts.length === 0 ? EMPTY_ACCOUNTS_HINT : CREATE_ACCOUNT_HINT}</p>
                   <div className="csv-create-row">
-                    <input ref={accountNameRef} value={newAccountName} onChange={(e) => setNewAccountName(e.target.value)} placeholder={ACCOUNT_NAME_PLACEHOLDER} disabled={busy || creatingAccount} required />
+                    <input ref={accountNameRef} value={newAccountName} onChange={(e) => setNewAccountName(e.target.value)} placeholder={isInvestmentImport ? INVEST_ACCOUNT_NAME_PLACEHOLDER : ACCOUNT_NAME_PLACEHOLDER} disabled={busy || creatingAccount} required />
                     <button type="button" className="secondary" disabled={busy || creatingAccount || !newAccountName.trim()} onClick={() => createImportAccount().catch((err: Error) => { setCreatingAccount(false); setMessageTone("error"); setMessage(err.message); })}>{creatingAccount ? CREATING_ACCOUNT_LABEL : CREATE_ACCOUNT_LABEL}</button>
                   </div>
                 </div>
               ) : (
                 <select value={accountId === ACCOUNT_UNSET ? "" : accountId} onChange={(e) => setAccountId(e.target.value ? Number(e.target.value) : ACCOUNT_UNSET)} required disabled={busy}>
                   <option value="" disabled>Select an account…</option>
-                  {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.institution ? ` · ${a.institution}` : ""}</option>)}
+                  {importableAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.institution ? ` · ${a.institution}` : ""}</option>)}
                 </select>
               )}
             </div>
           </div>
 
-          <label className="csv-step">
-            <span className="csv-step-num" aria-hidden="true">2</span>
-            <span className="csv-step-body">
-              <span className="csv-label">Employers / salary companies</span>
-              <span className="csv-hint">Names that pay your wage (comma-separated). Matching inflows become Income; other positives become Transfers.</span>
-              <input value={employerNames} onChange={(e) => setEmployerNames(e.target.value)} placeholder={EMPLOYER_PLACEHOLDER} disabled={busy} />
-            </span>
-          </label>
+          {!isInvestmentImport && (
+            <label className="csv-step">
+              <span className="csv-step-num" aria-hidden="true">3</span>
+              <span className="csv-step-body">
+                <span className="csv-label">Employers / salary companies</span>
+                <span className="csv-hint">Names that pay your wage (comma-separated). Matching inflows become Income; other positives become Transfers.</span>
+                <input value={employerNames} onChange={(e) => setEmployerNames(e.target.value)} placeholder={EMPLOYER_PLACEHOLDER} disabled={busy} />
+              </span>
+            </label>
+          )}
 
           <label className="csv-step">
-            <span className="csv-step-num" aria-hidden="true">3</span>
+            <span className="csv-step-num" aria-hidden="true">{isInvestmentImport ? "3" : "4"}</span>
             <span className="csv-step-body">
-              <span className="csv-label">CSV/Excel file</span>
-              <span className="csv-hint">Export from your bank, then choose the file here.</span>
+              <span className="csv-label">{isInvestmentImport ? "Revolut Robo-Advisor CSV" : "CSV/Excel file"}</span>
+              <span className="csv-hint">{isInvestmentImport ? "Export activity from Revolut Robo-Advisor (Date, Ticker, Type, Quantity, …)." : "Export from your bank, then choose the file here."}</span>
               <span className={`csv-file${file ? " has-file" : ""}`}>
-                <input type="file" accept=".csv,.xls,.xlsx" onChange={(e) => setFile(e.target.files?.[0] ?? null)} required disabled={busy} />
+                <input type="file" accept={isInvestmentImport ? ".csv" : ".csv,.xls,.xlsx"} onChange={(e) => { const next = e.target.files?.[0] ?? null; setFile(next); loadRevolutPreview(next).catch((err: Error) => { setPreviewBusy(false); setMessageTone("error"); setMessage(err.message); }); }} required disabled={busy} />
                 <span className="csv-file-name">{file ? file.name : "No file chosen"}</span>
                 <span className="csv-file-action">{file ? "Change file" : "Choose file"}</span>
               </span>
             </span>
           </label>
 
+          {isInvestmentImport && (previewBusy || revolutPreview) && (
+            <div className="csv-step">
+              <span className="csv-step-num" aria-hidden="true">*</span>
+              <div className="csv-step-body">
+                <span className="csv-label">Import preview</span>
+                {previewBusy && <p className="muted">Detecting Revolut format…</p>}
+                {revolutPreview && (
+                  <p className="csv-summary muted">
+                    Account type: {revolutPreview.account_type} · Format: {revolutPreview.format_detected} · Transactions: {revolutPreview.transactions} · Contributions: {euro.format(revolutPreview.contributions)} · Purchases: {euro.format(revolutPreview.purchases)} · Dividends: {euro.format(revolutPreview.dividends)} · Fees: {euro.format(revolutPreview.management_fees)} · Securities: {revolutPreview.securities} · Currency: {revolutPreview.currency}
+                    {revolutPreview.unknown_types.length > 0 ? ` · Unknown types: ${revolutPreview.unknown_types.join(", ")}` : ""}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
           <fieldset className="csv-step csv-mode" disabled={busy}>
-            <span className="csv-step-num" aria-hidden="true">4</span>
+            <span className="csv-step-num" aria-hidden="true">{isInvestmentImport ? "4" : "5"}</span>
             <span className="csv-step-body">
               <legend className="csv-label">Import mode</legend>
               <span className="csv-hint">Choose whether to keep existing rows or start fresh on this account.</span>
@@ -380,7 +452,7 @@ export function AccountsPage() {
           </fieldset>
 
           <div className="csv-actions">
-            <button type="submit" disabled={!canImport}>{busy ? (importPhase === IMPORT_PHASE_IMPORTING ? "Importing…" : "Categorizing…") : "Import and categorize"}</button>
+            <button type="submit" disabled={!canImport}>{busy ? (importPhase === IMPORT_PHASE_IMPORTING ? "Importing…" : "Categorizing…") : isInvestmentImport ? "Import investment CSV" : "Import and categorize"}</button>
             {busy && (
               <button type="button" className="secondary" onClick={() => cancelImport().catch((err: Error) => { setMessageTone("error"); setMessage(err.message); })}>Cancel</button>
             )}
@@ -400,7 +472,7 @@ export function AccountsPage() {
                 <span className="categorize-ring-spin" />
                 <span className="categorize-ring-time">{formatElapsed(elapsedSeconds)}</span>
               </div>
-              <h3>{importPhase === IMPORT_PHASE_IMPORTING ? "Importing transactions" : "Categorizing your expenses"}</h3>
+              <h3>{importPhase === IMPORT_PHASE_IMPORTING ? "Importing Transactions" : "Categorizing Your Expenses"}</h3>
               <p className="muted">{importPhase === IMPORT_PHASE_IMPORTING ? "Saving rows from your file. This step is usually quick." : "Matching merchants to categories. You can cancel waiting — the server may still finish in the background."}</p>
             </div>
           </div>
@@ -446,7 +518,7 @@ export function AccountsPage() {
           </table>
         </div>
         <div className="panel">
-          <h2>Add manual account</h2>
+          <h2>Add Manual Account</h2>
           <form className="form" onSubmit={(e) => createAccount(e).catch((err: Error) => { setMessageTone("error"); setMessage(err.message); })}>
             <label><div className="muted">Name</div><input value={name} onChange={(e) => setName(e.target.value)} required /></label>
             <label><div className="muted">IBAN</div><input value={iban} onChange={(e) => setIban(e.target.value)} placeholder="ES91 2100 …" /></label>
@@ -470,7 +542,7 @@ export function AccountsPage() {
           <button type="button" className="secondary" style={{ marginTop: "0.75rem" }} onClick={() => createSnpAccount().catch((err: Error) => { setMessageTone("error"); setMessage(err.message); })}>
             Add S&amp;P 500 investment
           </button>
-          <h3 style={{ marginTop: "1.5rem" }}>Record balance</h3>
+          <h3 style={{ marginTop: "1.5rem" }}>Record Balance</h3>
           <form className="form" onSubmit={(e) => saveBalance(e).catch((err: Error) => { setMessageTone("error"); setMessage(err.message); })}>
             <label>
               <div className="muted">Account</div>
@@ -481,7 +553,7 @@ export function AccountsPage() {
             <label><div className="muted">Amount (EUR)</div><input type="number" step="0.01" value={balanceAmount} onChange={(e) => setBalanceAmount(e.target.value)} required /></label>
             <button type="submit">Save snapshot</button>
           </form>
-          <h3 style={{ marginTop: "1.5rem" }}>Import investment history</h3>
+          <h3 style={{ marginTop: "1.5rem" }}>Import Investment History</h3>
           <p className="muted">CSV with <code>date</code> and <code>account_value_eur</code>. Keeps market value via balance snapshots.</p>
           <form className="form" onSubmit={(e) => importInvestmentHistory(e).catch((err: Error) => { setMessageTone("error"); setMessage(err.message); })}>
             <label>

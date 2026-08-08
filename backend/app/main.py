@@ -72,6 +72,11 @@ def ensure_schema() -> None:
             ("mcc", "ALTER TABLE transactions ADD COLUMN mcc VARCHAR(8)"),
             ("value_date", "ALTER TABLE transactions ADD COLUMN value_date DATE"),
             ("balance_after", "ALTER TABLE transactions ADD COLUMN balance_after FLOAT"),
+            ("investment_activity", "ALTER TABLE transactions ADD COLUMN investment_activity VARCHAR(40)"),
+            ("ticker", "ALTER TABLE transactions ADD COLUMN ticker VARCHAR(32)"),
+            ("quantity", "ALTER TABLE transactions ADD COLUMN quantity FLOAT"),
+            ("price_per_share", "ALTER TABLE transactions ADD COLUMN price_per_share FLOAT"),
+            ("fx_rate", "ALTER TABLE transactions ADD COLUMN fx_rate FLOAT"),
         ]
         missing = [(name, sql) for name, sql in additions if name not in tx_cols]
         if missing:

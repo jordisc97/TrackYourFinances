@@ -12,6 +12,7 @@ NODE_KIND_EXPENSES = "expenses"
 EDGE_KIND_INCOME = "income"
 EDGE_KIND_SPEND = "spend"
 EDGE_KIND_TRANSFER = "transfer"
+EDGE_KIND_INVEST = "invest"
 
 
 def normalize_iban(value: str | None) -> str | None:

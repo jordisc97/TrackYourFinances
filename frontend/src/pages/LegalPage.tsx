@@ -4,22 +4,22 @@ type LegalKind = "privacy" | "terms";
 
 const COPY: Record<LegalKind, { title: string; sections: { heading: string; body: string }[] }> = {
   privacy: {
-    title: "Privacy policy",
+    title: "Privacy Policy",
     sections: [
       {
-        heading: "Who we are",
+        heading: "Who We Are",
         body: "TrackYourFinances is a private household finance tracker. It helps you sync and review balances and transactions for personal use.",
       },
       {
-        heading: "What we collect",
+        heading: "What We Collect",
         body: "With your consent, we retrieve account balances and transaction history from your bank through Enable Banking. We also store the account details you enter manually (for example name, IBAN, and balances) and data you import from CSV files.",
       },
       {
-        heading: "How data is stored",
+        heading: "How Data Is Stored",
         body: "Bank and household data is stored locally in your TrackYourFinances instance for the household that connected the account. It is not sold, rented, or shared with advertisers.",
       },
       {
-        heading: "Bank access",
+        heading: "Bank Access",
         body: "Bank connections use Open Banking consent via Enable Banking. You can revoke access at any time through your bank or by disconnecting the link in TrackYourFinances.",
       },
       {
@@ -29,14 +29,14 @@ const COPY: Record<LegalKind, { title: string; sections: { heading: string; body
     ],
   },
   terms: {
-    title: "Terms of service",
+    title: "Terms Of Service",
     sections: [
       {
-        heading: "Personal use",
+        heading: "Personal Use",
         body: "TrackYourFinances is offered for personal, non-commercial household use. You may only connect bank accounts you are authorized to access.",
       },
       {
-        heading: "Bank consent",
+        heading: "Bank Consent",
         body: "Connecting a bank means you authorize Enable Banking and TrackYourFinances to retrieve account information according to the consent you grant at your bank. Consent can be revoked at the bank at any time.",
       },
       {

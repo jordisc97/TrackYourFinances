@@ -23,7 +23,7 @@ type TourStep = {
 const TOUR_STEPS: TourStep[] = [
   {
     id: "welcome",
-    title: "Welcome to TrackYourFinances",
+    title: "Welcome To TrackYourFinances",
     body: "Two ways to connect banks: upload a file, or sync automatically. We will walk the app left to right, starting with the Dashboard.",
   },
   {
@@ -42,7 +42,7 @@ const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "money-flow",
-    title: "Money flow",
+    title: "Money Flow",
     body: "At the top of Transactions, see how income moves through your accounts into expenses for the month you pick.",
     target: "money-flow",
     route: TRANSACTIONS_ROUTE,
@@ -56,7 +56,7 @@ const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "import",
-    title: "Import bank CSV/Excel",
+    title: "Import Bank CSV/Excel",
     body: "Name the account (or pick an existing one), choose your export file, then import. Rows load first; categories are assigned next.",
     target: "csv-import",
     route: ACCOUNTS_ROUTE,
@@ -77,7 +77,7 @@ const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "location",
-    title: "Where you live",
+    title: "Where You Live",
     body: "Type your city and country (for example Barcelona, Spain), then Save profile. We rebuild Spend-by-category typicals for that place and your income — it can take a few seconds.",
     target: "profile-location",
     route: PROFILE_ROUTE,

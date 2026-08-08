@@ -17,9 +17,11 @@ const KIND_ACCOUNT = "account";
 const KIND_EXPENSES = "expenses";
 const EDGE_TRANSFER = "transfer";
 const EDGE_SPEND = "spend";
+const EDGE_INVEST = "invest";
 const COLOR_INCOME = "#4ade80";
 const COLOR_SPEND = "#fb7185";
 const COLOR_TRANSFER = "#67e8f9";
+const COLOR_INVEST = "#86efac";
 const IBAN_TAIL_LEN = 4;
 const DEFAULT_ACCOUNT_TYPE = "checking";
 
@@ -65,6 +67,7 @@ function strokeForAmount(amount: number, maxAmount: number): number {
 
 function edgeColor(kind: string): string {
   if (kind === EDGE_TRANSFER) return COLOR_TRANSFER;
+  if (kind === EDGE_INVEST) return COLOR_INVEST;
   if (kind === EDGE_SPEND) return COLOR_SPEND;
   return COLOR_INCOME;
 }
@@ -200,6 +203,11 @@ export function MoneyFlowGraph({ flow, loading, onSaveIban, onAddAccount, onRemo
               <stop offset="50%" stopColor={COLOR_TRANSFER} stopOpacity="0.9" />
               <stop offset="100%" stopColor={COLOR_TRANSFER} stopOpacity="0.25" />
             </linearGradient>
+            <linearGradient id="flowGradInvest" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor={COLOR_INVEST} stopOpacity="0.25" />
+              <stop offset="50%" stopColor={COLOR_INVEST} stopOpacity="0.9" />
+              <stop offset="100%" stopColor={COLOR_INVEST} stopOpacity="0.25" />
+            </linearGradient>
             <filter id="flowSoftGlow" x="-50%" y="-50%" width="200%" height="200%">
               <feGaussianBlur stdDeviation="2.2" result="blur" />
               <feMerge>
@@ -216,7 +224,13 @@ export function MoneyFlowGraph({ flow, loading, onSaveIban, onAddAccount, onRemo
               const width = strokeForAmount(edge.amount, maxAmount);
               const color = edgeColor(edge.kind);
               const gradient =
-                edge.kind === EDGE_SPEND ? "url(#flowGradSpend)" : edge.kind === EDGE_TRANSFER ? "url(#flowGradTransfer)" : "url(#flowGradIncome)";
+                edge.kind === EDGE_SPEND
+                  ? "url(#flowGradSpend)"
+                  : edge.kind === EDGE_TRANSFER
+                    ? "url(#flowGradTransfer)"
+                    : edge.kind === EDGE_INVEST
+                      ? "url(#flowGradInvest)"
+                      : "url(#flowGradIncome)";
               const path = edgePath(source, target);
               return (
                 <g key={`${edge.source}-${edge.target}-${edge.kind}`} className="flow-link">

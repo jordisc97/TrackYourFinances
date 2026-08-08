@@ -267,7 +267,7 @@ export function TransactionsPage() {
 
       <div className="panel flow-panel" data-tour="money-flow">
         <div className="flow-panel-head">
-          <h2>Money flow</h2>
+          <h2>Money Flow</h2>
           <label className="flow-month">
             <span className="muted">Month</span>
             <select value={flowMonth} onChange={(e) => setFlowMonth(e.target.value)}>
@@ -351,7 +351,7 @@ export function TransactionsPage() {
                 <span className="categorize-ring-spin" />
                 <span className="categorize-ring-time">{formatElapsed(elapsedSeconds)}</span>
               </div>
-              <h3>Categorizing your expenses</h3>
+              <h3>Categorizing Your Expenses</h3>
               <p className="muted">Matching merchants to categories. You can cancel waiting — the server may still finish in the background.</p>
             </div>
           </div>
@@ -419,7 +419,7 @@ function FragmentRow({
             <div className="split-editor-inline panel">
               <div className="row" style={{ marginBottom: "0.75rem" }}>
                 <div style={{ flex: 2 }}>
-                  <h2 style={{ marginBottom: "0.25rem" }}>Split bill</h2>
+                  <h2 style={{ marginBottom: "0.25rem" }}>Split Bill</h2>
                   <p className="muted">{tx.merchant || tx.raw_description || "Transaction"} · {euro.format(tx.amount)}</p>
                 </div>
                 <button type="button" className="secondary" disabled={busy} onClick={onCancelSplit}>Cancel</button>

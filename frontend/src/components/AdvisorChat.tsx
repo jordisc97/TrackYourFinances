@@ -71,7 +71,7 @@ export function AdvisorChat({
   return (
     <div className="panel advisor-panel">
       <div className="advisor-head">
-        <h2>Financial advisor</h2>
+        <h2>Financial Advisor</h2>
         <p className="muted">DeepSeek · month summary + any-month recategorize</p>
       </div>
       <div className="advisor-suggestions">

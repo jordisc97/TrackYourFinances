@@ -96,7 +96,7 @@ export function BanksPage() {
       </section>
 
       <div className="panel" style={{ marginBottom: "1rem" }}>
-        <h2>Connected now</h2>
+        <h2>Connected Now</h2>
         {linked.length === 0 ? (
           <p className="muted">No active bank link yet.</p>
         ) : (
@@ -121,7 +121,7 @@ export function BanksPage() {
 
       <div className="grid two">
         <div className="panel">
-          <h2>Connect a bank</h2>
+          <h2>Connect A Bank</h2>
           <label className="bank-psu">
             <div className="muted">Account type at the bank</div>
             <select value={psuType} onChange={(e) => setPsuType(e.target.value as PsuType)}>
@@ -152,7 +152,7 @@ export function BanksPage() {
         </div>
 
         <div className="panel">
-          <h2>Last 5 connection attempts</h2>
+          <h2>Last 5 Connection Attempts</h2>
           <table className="table">
             <thead><tr><th>Bank</th><th>Tried</th><th>Status</th><th>Consent</th></tr></thead>
             <tbody>

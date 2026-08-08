@@ -1,6 +1,6 @@
 from calendar import monthrange
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy.orm import Session, joinedload
 
@@ -24,6 +24,8 @@ from app.services.benchmarks import get_or_refresh_benchmarks
 SP500_ANNUAL_RETURN = 0.10
 NON_SPEND_KINDS = ("transfer", "investment")
 NON_INCOME_KINDS = ("transfer", "investment")
+ACTIVITY_CASH_TOP_UP = "cash_top_up"
+TOP_UP_MATCH_DAYS = 3
 INCOME_KIND = "income"
 CATALAN_MONTHS = ("gen", "feb", "març", "abr", "maig", "juny", "jul", "ago", "set", "oct", "nov", "des")
 
@@ -54,26 +56,55 @@ def spend_amount(tx: Transaction) -> float:
 
 
 def invest_amount(tx: Transaction) -> float:
-    if not tx_has_splits(tx):
-        return tx.amount if is_invest_outflow(tx) else 0.0
-    total = 0.0
-    for split in tx.splits:
-        kind = split_kind(split) if split.category is not None else category_kind(tx)
-        if split.amount < 0 and kind == "investment":
-            total += split.amount
-    return total
+    if tx.investment_activity == ACTIVITY_CASH_TOP_UP:
+        return -abs(tx.amount)
+    if tx.investment_activity is not None:
+        return 0.0
+    if tx_has_splits(tx):
+        total = 0.0
+        for split in tx.splits:
+            kind = split_kind(split) if split.category is not None else category_kind(tx)
+            if split.amount < 0 and kind == "investment":
+                total += split.amount
+        return total
+    return tx.amount if tx.amount < 0 and category_kind(tx) == "investment" else 0.0
 
 
 def is_spend_outflow(tx: Transaction) -> bool:
+    if tx.investment_activity == ACTIVITY_CASH_TOP_UP:
+        return False
     if tx_has_splits(tx):
         return spend_amount(tx) < 0
     return tx.amount < 0 and category_kind(tx) not in NON_SPEND_KINDS
 
 
 def is_invest_outflow(tx: Transaction) -> bool:
-    if tx_has_splits(tx):
-        return invest_amount(tx) < 0
-    return tx.amount < 0 and category_kind(tx) == "investment"
+    if tx.investment_activity == ACTIVITY_CASH_TOP_UP:
+        return True
+    return invest_amount(tx) < 0
+
+
+def _covered_by_cash_top_up(tx: Transaction, top_ups: list[Transaction]) -> bool:
+    if tx.investment_activity == ACTIVITY_CASH_TOP_UP:
+        return False
+    target = round(abs(tx.amount if not tx_has_splits(tx) else invest_amount(tx)), 2)
+    if target <= 0:
+        return False
+    for top_up in top_ups:
+        if round(abs(top_up.amount), 2) != target:
+            continue
+        if abs((tx.booked_at - top_up.booked_at).days) <= TOP_UP_MATCH_DAYS:
+            return True
+    return False
+
+
+def contribution_amount(tx: Transaction, top_ups: list[Transaction] | None = None) -> float:
+    amount = invest_amount(tx)
+    if amount == 0.0:
+        return 0.0
+    if top_ups and _covered_by_cash_top_up(tx, top_ups):
+        return 0.0
+    return amount
 
 
 def is_income_inflow(tx: Transaction) -> bool:
@@ -89,9 +120,10 @@ def month_wage_total(txs: list[Transaction]) -> float:
 
 
 def month_flow_totals(txs: list[Transaction]) -> tuple[float, float, float, float]:
+    top_ups = [tx for tx in txs if tx.investment_activity == ACTIVITY_CASH_TOP_UP]
     income = round(sum(t.amount for t in txs if is_income_inflow(t)), 2)
     real_spend = round(abs(sum(spend_amount(t) for t in txs)), 2)
-    invest_out = round(abs(sum(invest_amount(t) for t in txs)), 2)
+    invest_out = round(abs(sum(contribution_amount(t, top_ups) for t in txs)), 2)
     save_amount = round(income - real_spend - invest_out, 2)
     return income, real_spend, invest_out, save_amount
 

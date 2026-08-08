@@ -64,7 +64,7 @@ function CombinedWealthPanel({ title, historical, forecast, forecastNoInvest, co
           </div>
         </div>
         <div className="wealth-split-objectives">
-          <h3>Yearly objectives</h3>
+          <h3>Yearly Objectives</h3>
           <YearlyObjectivesTable objectives={objectives} onSaveTarget={onSaveTarget} />
         </div>
       </div>
@@ -131,7 +131,7 @@ function InvestmentLedger({ rows, onSaveReal }: { rows: InvestmentMonthRow[]; on
   const keyOf = (row: InvestmentMonthRow) => `${row.year}-${row.month}`;
   return (
     <div className="strategy-invest-wrap">
-      <h3 className="strategy-invest-title">End-of-month investments</h3>
+      <h3 className="strategy-invest-title">End-of-Month Investments</h3>
       <p className="muted strategy-invest-lead">Accum compounds invested amounts at S&amp;P. Enter real portfolio value to mark to market.</p>
       <div className="strategy-invest-scroll">
         <table className="strategy-invest-table">
@@ -207,7 +207,7 @@ function MonthTable({ rows, year, month, onSelect, onSaveOpeningWealth }: {
   }, [year, month, rows]);
   return (
     <div className="panel month-table-panel">
-      <h2>Month over month</h2>
+      <h2>Month Over Month</h2>
       <p className="muted month-table-hint">Edit wealth on the first month to set a starting balance; later months = previous + wage − spend.</p>
       <div className="month-table-scroll" ref={scrollRef}>
         <table className="month-nav-table">
@@ -402,7 +402,7 @@ export function DashboardPage() {
 
       <div className="grid two">
         <div className="panel strategy-panel">
-          <h2>Month strategy</h2>
+          <h2>Month Strategy</h2>
           <p className="muted strategy-lead">Plan for this month. Projection uses spend / save / invest below.</p>
           <div className="strategy-targets">
             <label className="strategy-field is-spend">
@@ -433,7 +433,7 @@ export function DashboardPage() {
         </div>
 
         <div className="panel cat-panel">
-          <h2>Spend by category · {monthLabel}</h2>
+          <h2>Spend By Category · {monthLabel}</h2>
           <p className="muted cat-hint">
             You vs typical for {data.benchmark_location || "your region"}
             {data.benchmark_source === "llm" ? " (AI estimate)" : " (Eurostat-based)"}
@@ -505,7 +505,7 @@ export function DashboardPage() {
       </div>
 
       <CombinedWealthPanel
-        title="Accumulated wealth & 1y forecast"
+        title="Accumulated Wealth & 1Y Forecast"
         historical={data.wealth_series}
         forecast={data.wealth_projection}
         forecastNoInvest={data.wealth_projection_no_invest}
@@ -518,7 +518,7 @@ export function DashboardPage() {
 
       <div className="panel cat-detail-panel">
         <div className="cat-expenses-head">
-          <h2>{selectedCategory ? selectedCategory.category_name : "Category expenses"}</h2>
+          <h2>{selectedCategory ? selectedCategory.category_name : "Category Expenses"}</h2>
           {selectedCategory && <button type="button" className="secondary" onClick={() => { setSelectedCategory(null); setCategoryExpenses([]); }}>Clear</button>}
         </div>
         {!selectedCategory && <p className="muted">Select a category to list expenses for {monthLabel}.</p>}

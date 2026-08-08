@@ -102,6 +102,7 @@ class Account(Base):
     bank_connection: Mapped["BankConnection | None"] = relationship(back_populates="accounts")
     transactions: Mapped[list["Transaction"]] = relationship(back_populates="account")
     balance_snapshots: Mapped[list["BalanceSnapshot"]] = relationship(back_populates="account")
+    holdings: Mapped[list["InvestmentHolding"]] = relationship(back_populates="account")
 
 
 class BalanceSnapshot(Base):
@@ -112,6 +113,16 @@ class BalanceSnapshot(Base):
     snapshot_date: Mapped[date] = mapped_column(Date, nullable=False)
     amount: Mapped[float] = mapped_column(Float, nullable=False)
     account: Mapped["Account"] = relationship(back_populates="balance_snapshots")
+
+
+class InvestmentHolding(Base):
+    __tablename__ = "investment_holdings"
+    __table_args__ = (UniqueConstraint("account_id", "ticker", name="uq_holding_account_ticker"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False)
+    ticker: Mapped[str] = mapped_column(String(32), nullable=False)
+    quantity: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    account: Mapped["Account"] = relationship(back_populates="holdings")
 
 
 class Category(Base):
@@ -166,6 +177,11 @@ class Transaction(Base):
     balance_after: Mapped[float | None] = mapped_column(Float, nullable=True)
     external_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     source: Mapped[str] = mapped_column(String(20), default=TransactionSource.manual.value)
+    investment_activity: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    ticker: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    quantity: Mapped[float | None] = mapped_column(Float, nullable=True)
+    price_per_share: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fx_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     account: Mapped["Account"] = relationship(back_populates="transactions")
     category: Mapped["Category | None"] = relationship(back_populates="transactions")

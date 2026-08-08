@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 
-from app.models import Account, BalanceSnapshot, Transaction, TransactionSplit
+from app.models import Account, BalanceSnapshot, InvestmentHolding, Transaction, TransactionSplit
 
 
 def purge_account_data(db: Session, account: Account) -> None:
@@ -9,6 +9,7 @@ def purge_account_data(db: Session, account: Account) -> None:
         db.query(TransactionSplit).filter(TransactionSplit.transaction_id.in_(tx_ids)).delete(synchronize_session=False)
         db.query(Transaction).filter(Transaction.id.in_(tx_ids)).delete(synchronize_session=False)
     db.query(BalanceSnapshot).filter(BalanceSnapshot.account_id == account.id).delete(synchronize_session=False)
+    db.query(InvestmentHolding).filter(InvestmentHolding.account_id == account.id).delete(synchronize_session=False)
     db.delete(account)
 
 
