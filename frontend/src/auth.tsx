@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { api, getToken, setToken, type Household, type User } from "./api";
+import { clearOnboardingComplete } from "./components/ProductTour";
 
 type AuthState = {
   user: User | null;
@@ -39,10 +40,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  async function afterAuth(token: string) {
+  async function afterAuth(token: string, options?: { resetOnboarding?: boolean }) {
     setToken(token);
     const me = await api.me();
     const hh = await api.household();
+    if (options?.resetOnboarding) clearOnboardingComplete(me.id);
     setUser(me);
     setHousehold(hh);
   }
@@ -52,8 +54,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     household,
     loading,
     login: async (email, password) => afterAuth((await api.login({ email, password })).access_token),
-    register: async (payload) => afterAuth((await api.register(payload)).access_token),
-    join: async (payload) => afterAuth((await api.join(payload)).access_token),
+    register: async (payload) => afterAuth((await api.register(payload)).access_token, { resetOnboarding: true }),
+    join: async (payload) => afterAuth((await api.join(payload)).access_token, { resetOnboarding: true }),
     logout: () => {
       setToken(null);
       setUser(null);

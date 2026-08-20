@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, type Account, type RevolutImportPreview } from "../api";
-import { useAuth } from "../auth";
-import { markOnboardingComplete } from "../components/ProductTour";
 import { euro, parseEmployerNames } from "../format";
 
 const ACCOUNT_TYPE_INVESTMENT = "investment";
@@ -49,7 +47,6 @@ function formatElapsed(totalSeconds: number): string {
 }
 
 export function AccountsPage() {
-  const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const setupMode = searchParams.get(SETUP_QUERY_KEY) === SETUP_QUERY_VALUE;
@@ -124,7 +121,6 @@ export function AccountsPage() {
     setAccountId(created.id);
     setAccountMode(ACCOUNT_MODE_EXISTING);
     setNewAccountName("");
-    if (user) markOnboardingComplete(user.id);
     if (setupMode) navigate(ACCOUNTS_PATH, { replace: true });
     if (!options?.quiet) {
       const companies = await saveEmployersIfAny();

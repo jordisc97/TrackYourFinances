@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth";
 
-const ONBOARDING_KEY_PREFIX = "tyf_onboarding_v6";
+const ONBOARDING_KEY_PREFIX = "tyf_onboarding_v7";
 const ONBOARDING_DONE_VALUE = "1";
 const ACCOUNTS_ROUTE = "/accounts";
 const TRANSACTIONS_ROUTE = "/transactions";
@@ -106,6 +106,10 @@ export function markOnboardingComplete(userId: number) {
   localStorage.setItem(onboardingStorageKey(userId), ONBOARDING_DONE_VALUE);
 }
 
+export function clearOnboardingComplete(userId: number) {
+  localStorage.removeItem(onboardingStorageKey(userId));
+}
+
 type SpotlightRect = { top: number; left: number; width: number; height: number };
 
 function readTargetRect(target: string | undefined): SpotlightRect | null {
@@ -143,7 +147,7 @@ export function ProductTour() {
       return;
     }
     setActive(!isOnboardingComplete(user.id));
-  }, [user]);
+  }, [user?.id]);
 
   const step = TOUR_STEPS[stepIndex];
 
