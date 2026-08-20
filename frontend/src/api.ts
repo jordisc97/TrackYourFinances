@@ -92,7 +92,7 @@ export type RevolutImportPreview = {
   currency: string;
   unknown_types: string[];
 };
-export type ClassifyResult = { categorized: number; account_id: number | null };
+export type ClassifyResult = { categorized: number; account_id: number | null; remaining: number };
 export type AdvisorChatMessage = { role: "user" | "assistant"; content: string };
 export type AdvisorActionResult = {
   type: string;

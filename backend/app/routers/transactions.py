@@ -4,9 +4,10 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, joinedload
 
+from app.config import get_settings
 from app.database import get_db
 from app.deps import get_current_user
-from app.models import Account, Category, CategoryRule, Transaction, TransactionSplit, User
+from app.models import Account, Category, Transaction, TransactionSplit, User
 from app.schemas import (
     CategoryOut,
     ClassifyResult,
@@ -17,7 +18,15 @@ from app.schemas import (
     TransactionSplitIn,
     TransactionSplitOut,
 )
-from app.services.classification import classify_uncategorized, remember_commerce, rematch_positive_inflows, register_employer_rules
+from app.services.classification import (
+    apply_pattern_to_uncategorized,
+    classify_uncategorized,
+    ensure_contains_rule,
+    merchant_match_pattern,
+    remember_commerce,
+    rematch_positive_inflows,
+    register_employer_rules,
+)
 from app.services.dashboard import household_account_ids, is_spend_outflow
 from app.services.splits import clear_splits, replace_splits, signed_portion_amount, validate_portions
 
@@ -131,12 +140,12 @@ def assign_category(transaction_id: int, payload: TransactionAssignIn, user: Use
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
     tx.category_id = category.id
     remember_commerce(db, tx.merchant, tx.raw_description, category.name)
-    if payload.create_rule:
-        pattern = payload.rule_pattern or tx.merchant or tx.raw_description
-        if pattern:
-            db.add(CategoryRule(category_id=category.id, pattern=pattern[:255], match_type="contains", priority=50))
+    pattern = payload.rule_pattern or merchant_match_pattern(tx.merchant, tx.raw_description) or (tx.merchant or tx.raw_description)
+    if payload.create_rule and pattern:
+        ensure_contains_rule(db, category.id, pattern)
+    apply_pattern_to_uncategorized(db, account_ids, category.id, pattern or "")
     db.commit()
-    classify_uncategorized(db, user.household_id, account_ids)
+    classify_uncategorized(db, user.household_id, account_ids, use_llm=False)
     tx = _tx_query(db, account_ids).filter(Transaction.id == transaction_id).one()
     return _tx_out(tx)
 
@@ -193,5 +202,7 @@ def classify_transactions(account_id: int | None = Query(None), user: User = Dep
     if not accounts:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
     account_ids = [account.id for account in accounts]
-    categorized = classify_uncategorized(db, user.household_id, account_ids, use_llm=True)
-    return ClassifyResult(categorized=categorized, account_id=account_id)
+    max_seconds = get_settings().categorize_max_seconds
+    categorized = classify_uncategorized(db, user.household_id, account_ids, use_llm=True, max_seconds=max_seconds)
+    remaining = db.query(Transaction).filter(Transaction.account_id.in_(account_ids), Transaction.category_id.is_(None)).count()
+    return ClassifyResult(categorized=categorized, account_id=account_id, remaining=remaining)

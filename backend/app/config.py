@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     deepseek_model: str = "deepseek-v4-flash"
     categorize_interval_seconds: int = 900
     categorize_llm_limit: int = 50
+    categorize_max_seconds: int = 60
 
 
 @lru_cache

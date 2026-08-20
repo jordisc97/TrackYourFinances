@@ -16,7 +16,7 @@ from app.services.dashboard import (
     spend_by_category,
 )
 from app.services.deepseek import advisor_chat
-from app.services.classification import remember_commerce
+from app.services.classification import apply_pattern_to_uncategorized, ensure_contains_rule, merchant_match_pattern, remember_commerce
 from app.services.splits import replace_splits, signed_portion_amount, validate_portions
 
 RECENT_TX_LIMIT = 120
@@ -253,14 +253,17 @@ def _apply_recategorize(
     )
     create_rule = bool(action.get("create_rule", True))
     updated_ids: list[int] = []
+    patterns: list[str] = []
     for tx in txs:
         tx.category_id = category.id
         updated_ids.append(tx.id)
         remember_commerce(db, tx.merchant, tx.raw_description, category.name)
-        if create_rule:
-            pattern = (tx.merchant or tx.raw_description or "").strip()[:255]
-            if pattern:
-                db.add(CategoryRule(category_id=category.id, pattern=pattern, match_type="contains", priority=50))
+        pattern = merchant_match_pattern(tx.merchant, tx.raw_description) or (tx.merchant or tx.raw_description or "").strip()
+        if create_rule and pattern:
+            ensure_contains_rule(db, category.id, pattern)
+            patterns.append(pattern)
+    for pattern in patterns:
+        apply_pattern_to_uncategorized(db, account_ids, category.id, pattern)
     if updated_ids:
         db.commit()
     return AdvisorActionResult(

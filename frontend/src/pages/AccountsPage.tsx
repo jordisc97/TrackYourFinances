@@ -317,6 +317,7 @@ export function AccountsPage() {
     setImportPhase(IMPORT_PHASE_CATEGORIZING);
     const classifyResult = await api.classifyTransactions(importAccountId, controller.signal);
     parts.push(`categorized ${classifyResult.categorized}`);
+    if (classifyResult.remaining > 0) parts.push(`${classifyResult.remaining} still uncategorized (press Categorize again)`);
     setMessageTone("ok");
     setMessage(`${parts.join(" · ")} → ${targetAccount?.name ?? "account"}`);
     setFile(null);

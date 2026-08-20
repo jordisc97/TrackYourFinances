@@ -1,4 +1,5 @@
 import re
+import time
 from datetime import datetime
 
 from sqlalchemy import or_
@@ -10,10 +11,22 @@ from app.services.deepseek import LLM_RULE_PRIORITY, classify_batch_with_deepsee
 
 LLM_BATCH_SIZE = 25
 EMPLOYER_RULE_PRIORITY = 5
+MANUAL_RULE_PRIORITY = 50
+MIN_MERCHANT_STEM_LEN = 3
 INCOME_CATEGORY_NAME = "Income"
 TRANSFER_CATEGORY_NAME = "Transfer"
 INCOME_KIND = "income"
 EXPENSE_KIND = "expense"
+MERCHANT_TRAILING_NOISE = frozenset({
+    "stores", "store", "limited", "ltd", "inc", "llc", "gmbh", "sa", "sl", "plc", "co", "company",
+    "pending", "webuy", "ireland", "dublin", "ie",
+})
+MERCHANT_PREFIX_NOISE = frozenset({"sq", "paypal", "sumup", "zettle", "stripe", "clr"})
+AMBIGUOUS_BRAND_PREFIXES = frozenset({"uber", "amazon", "apple", "google"})
+MERCHANT_KEEP_CHARS_RE = re.compile(r"[^\w\sÀ-ÿ&'-]", re.UNICODE)
+MERCHANT_DIGITS_RE = re.compile(r"\b\d+\b")
+MERCHANT_STARS_RE = re.compile(r"[*]+")
+MERCHANT_SPACES_RE = re.compile(r"\s+")
 
 
 def load_household_accounts(db: Session, household_id: int) -> list[Account]:
@@ -50,8 +63,14 @@ def _rule_applies_to_amount(rule: CategoryRule, amount: float | None) -> bool:
     return True
 
 
+def _match_haystack(description: str, merchant: str) -> str:
+    text = f"{description} {merchant}".lower()
+    text = MERCHANT_STARS_RE.sub(" ", text)
+    return MERCHANT_SPACES_RE.sub(" ", text).strip()
+
+
 def match_category_with_rules(rules: list[CategoryRule], description: str, merchant: str, amount: float | None = None) -> int | None:
-    haystack = f"{description} {merchant}".lower()
+    haystack = _match_haystack(description, merchant)
     for rule in rules:
         if not _rule_applies_to_amount(rule, amount):
             continue
@@ -69,8 +88,30 @@ def match_category(db: Session, household_id: int, description: str, merchant: s
     return match_category_with_rules(load_category_rules(db, household_id), description, merchant, amount)
 
 
+def merchant_match_pattern(merchant: str, description: str) -> str:
+    raw = (merchant or description or "").strip()
+    if not raw:
+        return ""
+    text = MERCHANT_STARS_RE.sub(" ", raw.lower())
+    text = MERCHANT_KEEP_CHARS_RE.sub(" ", text)
+    text = MERCHANT_DIGITS_RE.sub(" ", text)
+    tokens = [token for token in text.split() if token]
+    if tokens and tokens[0] in MERCHANT_PREFIX_NOISE:
+        tokens = tokens[1:]
+    while tokens and tokens[-1] in MERCHANT_TRAILING_NOISE:
+        tokens.pop()
+    if not tokens:
+        return MERCHANT_SPACES_RE.sub(" ", raw).strip()[:255]
+    # Prefer brand stem; keep a second token for short or ambiguous prefixes (uber eats).
+    if len(tokens) >= 2 and (len(tokens[0]) < MIN_MERCHANT_STEM_LEN + 1 or tokens[0] in AMBIGUOUS_BRAND_PREFIXES):
+        stem = f"{tokens[0]} {tokens[1]}"
+    else:
+        stem = tokens[0]
+    return stem[:255]
+
+
 def _merchant_key(description: str, merchant: str) -> str:
-    return re.sub(r"\s+", " ", (merchant or description or "").strip().lower())[:255]
+    return merchant_match_pattern(merchant, description) or MERCHANT_SPACES_RE.sub(" ", (merchant or description or "").strip().lower())[:255]
 
 
 def _category_by_name(db: Session, household_id: int) -> dict[str, Category]:
@@ -113,14 +154,36 @@ def match_known_commerce(db: Session, household_id: int, description: str, merch
     return category.id if category is not None else None
 
 
-def _persist_llm_rule(db: Session, category_id: int, merchant: str, description: str) -> None:
-    pattern = (merchant or description or "").strip()[:255]
-    if not pattern:
-        return
-    exists = db.query(CategoryRule).filter(CategoryRule.category_id == category_id, CategoryRule.pattern == pattern, CategoryRule.match_type == "contains").first()
+def ensure_contains_rule(db: Session, category_id: int, pattern: str, priority: int = MANUAL_RULE_PRIORITY) -> CategoryRule | None:
+    cleaned = MERCHANT_SPACES_RE.sub(" ", (pattern or "").strip())[:255]
+    if len(cleaned) < MIN_MERCHANT_STEM_LEN:
+        return None
+    exists = db.query(CategoryRule).filter(CategoryRule.category_id == category_id, CategoryRule.pattern == cleaned, CategoryRule.match_type == "contains").first()
     if exists is not None:
-        return
-    db.add(CategoryRule(category_id=category_id, pattern=pattern, match_type="contains", priority=LLM_RULE_PRIORITY))
+        exists.is_active = True
+        return exists
+    for pending in db.new:
+        if isinstance(pending, CategoryRule) and pending.category_id == category_id and pending.pattern == cleaned and pending.match_type == "contains":
+            return pending
+    rule = CategoryRule(category_id=category_id, pattern=cleaned, match_type="contains", priority=priority)
+    db.add(rule)
+    return rule
+
+
+def apply_pattern_to_uncategorized(db: Session, account_ids: list[int], category_id: int, pattern: str) -> int:
+    cleaned = MERCHANT_SPACES_RE.sub(" ", (pattern or "").strip().lower())
+    if not cleaned or not account_ids:
+        return 0
+    updated = 0
+    for tx in db.query(Transaction).filter(Transaction.account_id.in_(account_ids), Transaction.category_id.is_(None)).all():
+        if cleaned in _match_haystack(tx.raw_description, tx.merchant):
+            tx.category_id = category_id
+            updated += 1
+    return updated
+
+
+def _persist_llm_rule(db: Session, category_id: int, merchant: str, description: str) -> None:
+    ensure_contains_rule(db, category_id, merchant_match_pattern(merchant, description) or (merchant or description or ""), LLM_RULE_PRIORITY)
 
 
 def classify_transaction(db: Session, household_id: int, tx: Transaction, rules: list[CategoryRule] | None = None, use_llm: bool = True, accounts: list[Account] | None = None) -> Transaction:
@@ -210,12 +273,13 @@ def register_employer_rules(db: Session, household_id: int, companies: list[str]
     return created, cleaned
 
 
-def classify_uncategorized(db: Session, household_id: int, account_ids: list[int], use_llm: bool = True, max_llm: int | None = None) -> int:
+def classify_uncategorized(db: Session, household_id: int, account_ids: list[int], use_llm: bool = True, max_llm: int | None = None, max_seconds: float | None = None) -> int:
     rules = load_category_rules(db, household_id)
     categories_by_name = _category_by_name(db, household_id)
     known = load_known_commerces(db)
     accounts = load_household_accounts(db, household_id)
-    txs = db.query(Transaction).filter(Transaction.account_id.in_(account_ids), Transaction.category_id.is_(None)).all()
+    # Newest first so interactive and capped runs prioritize recent spend.
+    txs = db.query(Transaction).filter(Transaction.account_id.in_(account_ids), Transaction.category_id.is_(None)).order_by(Transaction.booked_at.desc(), Transaction.id.desc()).all()
     updated = 0
     llm_queue: list[Transaction] = []
     for tx in txs:
@@ -236,22 +300,27 @@ def classify_uncategorized(db: Session, household_id: int, account_ids: list[int
             continue
         if use_llm and tx.amount < 0:
             llm_queue.append(tx)
+    # Persist rule/known matches before slow LLM so assign/sibling updates survive timeouts.
+    db.commit()
     if use_llm and llm_queue:
         if max_llm is not None and max_llm >= 0:
             llm_queue = llm_queue[:max_llm]
-        updated += _classify_with_llm_batches(db, llm_queue, categories_by_name)
+        updated += _classify_with_llm_batches(db, llm_queue, categories_by_name, max_seconds=max_seconds)
     updated += _assign_leftover_positives_as_transfer(db, household_id, account_ids)
     db.commit()
     return updated
 
 
-def _classify_with_llm_batches(db: Session, txs: list[Transaction], categories_by_name: dict[str, Category]) -> int:
+def _classify_with_llm_batches(db: Session, txs: list[Transaction], categories_by_name: dict[str, Category], max_seconds: float | None = None) -> int:
     groups: dict[str, list[Transaction]] = {}
     for tx in txs:
         groups.setdefault(_merchant_key(tx.raw_description, tx.merchant), []).append(tx)
     representatives = [group[0] for group in groups.values()]
     category_by_key: dict[str, int | None] = {}
+    deadline = None if max_seconds is None else time.monotonic() + max_seconds
     for offset in range(0, len(representatives), LLM_BATCH_SIZE):
+        if deadline is not None and time.monotonic() >= deadline:
+            break
         batch = representatives[offset : offset + LLM_BATCH_SIZE]
         items = [(tx.id, tx.raw_description, tx.merchant, tx.amount, tx.currency) for tx in batch]
         results = classify_batch_with_deepseek(items) or {}

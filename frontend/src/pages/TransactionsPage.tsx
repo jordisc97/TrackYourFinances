@@ -20,6 +20,8 @@ const SPLIT_BALANCE_TOLERANCE = 0.02;
 const CATEGORIZE_BUTTON_LABEL = "Categorize";
 const CATEGORIZING_BUTTON_LABEL = "Categorizing…";
 const CATEGORIZE_DONE_MESSAGE = (count: number) => (count === 1 ? "Categorized 1 transaction." : `Categorized ${count} transactions.`);
+const CATEGORIZE_PARTIAL_MESSAGE = (count: number, remaining: number) =>
+  `${CATEGORIZE_DONE_MESSAGE(count)} ${remaining} still uncategorized — press Categorize again.`;
 const CATEGORIZE_NONE_MESSAGE = "No uncategorized transactions matched rules or AI.";
 const FLOW_MONTH_LOOKBACK = 24;
 const FLOW_MONTH_LOCALE = "en-US";
@@ -223,7 +225,8 @@ export function TransactionsPage() {
     setMessageTone("");
     const result = await api.classifyTransactions(undefined, controller.signal);
     setMessageTone("ok");
-    setMessage(result.categorized > 0 ? CATEGORIZE_DONE_MESSAGE(result.categorized) : CATEGORIZE_NONE_MESSAGE);
+    if (result.categorized > 0 && result.remaining > 0) setMessage(CATEGORIZE_PARTIAL_MESSAGE(result.categorized, result.remaining));
+    else setMessage(result.categorized > 0 ? CATEGORIZE_DONE_MESSAGE(result.categorized) : CATEGORIZE_NONE_MESSAGE);
     await load();
     await refreshFlow();
     abortRef.current = null;

@@ -358,6 +358,7 @@ class RevolutImportPreview(BaseModel):
 class ClassifyResult(BaseModel):
     categorized: int
     account_id: int | None = None
+    remaining: int = 0
 
 
 class AdvisorChatMessage(BaseModel):
